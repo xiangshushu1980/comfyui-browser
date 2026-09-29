@@ -406,10 +406,21 @@
   async function addBrowserRoot() {
     syncViewMode();
     rootError = '';
+    let pathToAdd = newRootPath.trim();
+    if (/^file:\/\//i.test(pathToAdd)) {
+      try {
+        const fileUrl = new URL(pathToAdd);
+        if (fileUrl.hostname && fileUrl.hostname !== 'localhost') throw new Error('Only local file:// paths are supported');
+        pathToAdd = decodeURIComponent(fileUrl.pathname);
+      } catch {
+        rootError = 'Enter a valid local file:// path';
+        return;
+      }
+    }
     const response = await fetch(comfyUrl + '/browser/roots', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: newRootPath }),
+      body: JSON.stringify({ path: pathToAdd }),
     });
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
@@ -726,6 +737,16 @@
           {/if}
         </div>
         <div class="mt-3 flex min-h-0 flex-1 flex-col rounded border border-base-content/15 p-2">
+          <div class="mb-2 flex items-center gap-2">
+            <input
+              bind:value={newRootPath}
+              class="input input-bordered input-sm min-w-0 flex-1 text-xs"
+              placeholder="Absolute path or file:///..."
+              aria-label="Directory path to add"
+              on:keydown={(event) => { if (event.key === 'Enter' && newRootPath.trim()) addBrowserRoot(); }}
+            />
+            <button class="btn btn-primary btn-xs" disabled={!newRootPath.trim()} on:click={addBrowserRoot}>Add path</button>
+          </div>
           <div class="mb-2 flex items-center gap-2">
             <button class="btn btn-ghost btn-xs" disabled={!pickerParent || pickerLoading} on:click={() => pickerParent && loadPickerDirectory(pickerParent)}>Up</button>
             <button class="min-w-0 flex-1 truncate text-left text-xs hover:underline" title={`Click to copy: ${pickerPath}`} on:click={() => copyDirectoryPath(pickerPath)}>{pickerPath || 'Loading…'}</button>
