@@ -286,6 +286,7 @@
     });
     window.addEventListener('keydown', onFolderShortcut);
     window.addEventListener('keydown', onFileShortcut);
+    window.addEventListener('keydown', onPreviewNavigateKey);
     window.addEventListener('keydown', onSearchShortcut);
     window.addEventListener('auxclick', onMouseNavigation);
   });
@@ -294,6 +295,7 @@
     if (typeof window !== 'undefined') {
       window.removeEventListener('keydown', onFolderShortcut);
       window.removeEventListener('keydown', onFileShortcut);
+      window.removeEventListener('keydown', onPreviewNavigateKey);
       window.removeEventListener('keydown', onSearchShortcut);
       window.removeEventListener('auxclick', onMouseNavigation);
       window.removeEventListener('message', onHostMessage);
@@ -340,6 +342,15 @@
     const index = previewable.findIndex((file) => file.name === selectedFile.name && file.folder_path === selectedFile.folder_path && file.root_id === activeRootId);
     const next = previewable[index + direction];
     if (next) void onSelectFile(next);
+  }
+
+  function onPreviewNavigateKey(event: KeyboardEvent) {
+    if (!selectedFile || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    navigatePreview(event.key === 'ArrowLeft' ? -1 : 1);
   }
 
   function setViewMode(mode: 'full' | 'side') {
