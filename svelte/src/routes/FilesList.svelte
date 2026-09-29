@@ -109,7 +109,7 @@
         (total, char) => total + (/\p{Script=Han}/u.test(char) ? 2 : 1),
         0,
       );
-      const neededLines = Math.max(1, Math.ceil(lineUnits / 7));
+      const neededLines = Math.max(1, Math.ceil(lineUnits / 9));
       if (index > 0 && usedLines + neededLines > maxLines) {
         splitAt = index;
         break;
@@ -762,7 +762,7 @@
 {/if}
 </div>
 
-<div class="grid w-full gap-2" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));">
+<div class="grid w-full gap-2" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));">
   {#each filteredFiles.slice(0, showCursor) as file}
     {#if WHITE_EXTS.includes(file.fileType)}
       <div class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={() => hoveredFile = file} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
@@ -779,7 +779,7 @@
         </button>
         {#if file.type === 'dir'}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-1 font-bold leading-[1.3] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, false) as column, index}
                 <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
@@ -787,7 +787,7 @@
           </div>
         {:else}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-1 font-bold leading-[1.3] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, true) as column, index}
                 <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
