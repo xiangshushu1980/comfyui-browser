@@ -754,8 +754,8 @@
           <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={file.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg>
         </button>
         {#if file.type === 'dir'}
-          <div class="pointer-events-none absolute left-2 right-2 top-2 z-[1] text-center opacity-80">
-            <p class="break-words text-sm font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)]" title={file.name}>{file.name}</p>
+          <div class="pointer-events-none absolute inset-x-1 top-1 z-[1] rounded bg-black/75 px-1 py-0.5 text-center">
+            <p class="break-words text-[28px] font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)]" title={file.name}>{#each filenameSegments(file.name, false) as part}<span style={`color:${part.color}`}>{part.text}</span>{/each}</p>
           </div>
         {:else}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden opacity-80">

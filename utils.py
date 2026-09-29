@@ -213,11 +213,53 @@ def get_target_folder_files(folder_path: str, folder_type: str = 'outputs', root
             files.append(file_info)
         elif item.is_dir():
             child_count, folder_bytes = get_directory_stats(item.path)
+            try:
+                direct_files = sorted(
+                    (child for child in scandir(item.path)
+                     if child.is_file() and not child.name.startswith('.')
+                     and path.splitext(child.name)[1].lower() in white_extensions),
+                    key=lambda child: child.name.lower(),
+                )
+                media_stems = {
+                    path.splitext(child.name)[0]
+                    for child in direct_files
+                    if path.splitext(child.name)[1].lower() in image_extensions + video_extensions
+                }
+                direct_files = [
+                    child for child in direct_files
+                    if not (
+                        path.splitext(child.name)[1].lower() == '.json'
+                        and path.splitext(child.name)[0] in media_stems
+                    )
+                ]
+                image_files = [child for child in direct_files if path.splitext(child.name)[1].lower() in image_extensions]
+                other_files = [child for child in direct_files if child not in image_files]
+                if image_files and other_files:
+                    preview_files = image_files[:2] + other_files[:1]
+                else:
+                    preview_files = (image_files or other_files)[:3]
+                preview_items = []
+                for child in preview_files:
+                    child_ext = path.splitext(child.name)[1].lower()
+                    if child_ext in image_extensions:
+                        file_type = 'image'
+                    elif child_ext in video_extensions:
+                        file_type = 'video'
+                    elif child_ext in audio_extensions:
+                        file_type = 'audio'
+                    elif child_ext in ['.html', '.json']:
+                        file_type = child_ext[1:]
+                    else:
+                        file_type = 'text'
+                    preview_items.append({"name": child.name, "fileType": file_type})
+            except OSError:
+                preview_items = []
             files.append({
                 "type": "dir",
                 "name": name,
                 "bytes": folder_bytes,
                 "children_count": child_count,
+                "preview_items": preview_items,
                 "is_favorite": favorite_key(folder_type, folder_path, name, root_id) in favorite_records,
                 "root_id": root_id or 'outputs',
                 "created_at": created_at,

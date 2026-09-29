@@ -13,7 +13,7 @@ const SUPPORTED_FILE_EXTS = ['html', 'json', ...IMAGE_EXTS, ...VIDEO_EXTS, ...AU
 
 const localStorageKey = 'comfyui-browser';
 
-function getFileUrl(comfyUrl: string, folderType: string, file: any, rootId = 'outputs') {
+export function getFileUrl(comfyUrl: string, folderType: string, file: any, rootId = 'outputs') {
   if (rootId !== 'outputs') {
     const params = new URLSearchParams({
       folder_type: folderType,
@@ -92,11 +92,17 @@ function processFile(
   return file;
 }
 
-function processDir(dir: any) {
+function processDir(dir: any, folderType: FOLDER_TYPES, comfyUrl: string, rootId: string) {
   dir['fileType'] = 'dir';
 
   const newFolderPath = dir.folder_path ? `${dir.folder_path}/${dir.name}` : dir.name;
   dir['path'] = newFolderPath;
+  dir['preview_items'] = (dir.preview_items || []).map((item: any) => ({
+    ...item,
+    previewUrl: item.fileType === 'image'
+      ? getFileUrl(comfyUrl, folderType, { name: item.name, folder_path: newFolderPath }, rootId)
+      : undefined,
+  }));
 
   const d = dayjs.unix(dir.created_at);
   dir['formattedDatetime'] = d.format('YYYY-MM-DD HH:mm:ss');
@@ -123,7 +129,7 @@ export async function fetchFiles(
     if (f.type === 'dir' && (!f.children_count || f.children_count <= 0)) return;
     let newFile;
     if (f.type === 'dir') {
-      newFile = processDir(f);
+      newFile = processDir(f, folderType, comfyUrl, rootId);
     } else {
       newFile = processFile(f, folderType, comfyUrl, files, rootId);
     }

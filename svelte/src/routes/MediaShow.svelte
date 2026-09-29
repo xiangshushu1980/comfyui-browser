@@ -22,15 +22,26 @@
 <div class={`${styleClass} relative`} style={`aspect-ratio:${aspectRatio};`}>
   {#if file.type === 'dir'}
     <button
-      class="absolute inset-0 w-full h-full flex items-center justify-center"
-      style="container-type:inline-size;"
+      class="absolute inset-0 grid h-full w-full gap-0.5 overflow-hidden bg-slate-950"
+      style={`container-type:inline-size;grid-template-columns:repeat(${Math.max(1, file.preview_items?.length || 1)},minmax(0,1fr));`}
       title={file.children_count === 0 ? 'Empty folder' : `${file.children_count} items`}
       aria-label={file.children_count === 0 ? `Empty folder ${file.name}` : `${file.name}, ${file.children_count} items`}
       on:click={() => onClickDir(file)}
     >
-      <span class="text-4xl font-bold leading-none text-white drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">
-        {file.children_count}
-      </span>
+      {#if file.preview_items?.length}
+        {#each file.preview_items as item}
+          <span class="relative flex h-full min-w-0 flex-col items-center justify-center overflow-hidden bg-slate-800/80">
+            {#if item.fileType === 'image'}
+              <img class="absolute inset-0 h-full w-full object-cover" loading="lazy" src={item.previewUrl} alt={item.name} />
+            {:else}
+              <span class="text-2xl font-semibold text-sky-200" aria-hidden="true">{item.fileType === 'video' ? '▶' : item.fileType === 'audio' ? '♫' : '▤'}</span>
+              <span class="absolute inset-x-0 bottom-0 truncate bg-black/75 px-1 py-1 text-[10px] leading-tight text-white">{item.name}</span>
+            {/if}
+          </span>
+        {/each}
+      {:else}
+        <span class="col-span-full flex h-full items-center justify-center text-4xl font-bold text-white/80 drop-shadow">{file.children_count}</span>
+      {/if}
     </button>
   {:else}
     <button
