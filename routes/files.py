@@ -1,17 +1,24 @@
 from aiohttp import web
+import asyncio
 import json
 from os import path
 import os
 import shutil
+import mimetypes
 
-from ..utils import get_target_folder_files, get_parent_path, get_info_filename, \
-    image_extensions, video_extensions
+from ..utils import get_target_folder_files, get_browser_root_path, get_info_filename
 
 # folder_path, folder_type
 async def api_get_files(request):
     folder_path = request.query.get('folder_path', '')
     folder_type = request.query.get('folder_type', 'outputs')
-    files = get_target_folder_files(folder_path, folder_type=folder_type)
+    root_id = request.query.get('root_id', 'outputs')
+    files = await asyncio.to_thread(
+        get_target_folder_files,
+        folder_path,
+        folder_type=folder_type,
+        root_id=root_id,
+    )
 
     if files == None:
         return web.Response(status=404)
@@ -27,8 +34,11 @@ async def api_delete_file(request):
     filename = json_data['filename']
     folder_path = json_data.get('folder_path', '')
     folder_type = json_data.get('folder_type', 'outputs')
+    root_id = json_data.get('root_id')
 
-    parent_path = get_parent_path(folder_type)
+    parent_path = get_browser_root_path(root_id, folder_type)
+    if parent_path is None:
+        return web.Response(status=404)
     target_path = path.join(parent_path, folder_path, filename)
     if not path.exists(target_path):
         return web.json_response(status=404)
@@ -50,7 +60,10 @@ async def api_update_file(request):
     filename = json_data['filename']
     folder_path = json_data.get('folder_path', '')
     folder_type = json_data.get('folder_type', 'outputs')
-    parent_path = get_parent_path(folder_type)
+    root_id = json_data.get('root_id')
+    parent_path = get_browser_root_path(root_id, folder_type)
+    if parent_path is None:
+        return web.Response(status=404)
 
     new_data = json_data.get('new_data', None)
     if not new_data:
@@ -92,28 +105,21 @@ async def api_update_file(request):
 async def api_view_file(request):
     folder_type = request.query.get("folder_type", "outputs")
     folder_path = request.query.get("folder_path", "")
+    root_id = request.query.get("root_id")
     filename = request.query.get("filename", None)
     if not filename:
         return web.Response(status=404)
 
-    parent_path = get_parent_path(folder_type)
+    parent_path = get_browser_root_path(root_id, folder_type)
+    if parent_path is None:
+        return web.Response(status=404)
     file_path = path.join(parent_path, folder_path, filename)
 
     if not path.exists(file_path):
         return web.Response(status=404)
 
-    with open(file_path, 'rb') as f:
-        media_file = f.read()
-
-    content_type = 'application/json'
-    file_extension = path.splitext(filename)[1].lower()
-    if file_extension in image_extensions:
-        content_type = f'image/{file_extension[1:]}'
-    if file_extension in video_extensions:
-        content_type = f'video/{file_extension[1:]}'
-
-    return web.Response(
-        body=media_file,
-        content_type=content_type,
-        headers={"Content-Disposition": f"filename=\"{filename}\""}
-    )
+    content_type, _ = mimetypes.guess_type(file_path)
+    response = web.FileResponse(file_path)
+    if content_type:
+        response.content_type = content_type
+    return response

@@ -1,6 +1,8 @@
 import functools
+import hashlib
 import json
-from os import path, scandir, makedirs
+from os import path, scandir, makedirs, walk
+from os.path import expanduser, realpath
 import subprocess
 import time
 from typing import TypedDict, List
@@ -20,7 +22,9 @@ config_path = path.join(browser_path, 'config.json')
 
 image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 video_extensions = ['.mp4', '.mov', '.avi', '.webm', '.mkv']
-white_extensions = ['.json', '.html'] + image_extensions + video_extensions
+audio_extensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac']
+text_extensions = ['.txt', '.md', '.csv', '.log']
+white_extensions = ['.json', '.html'] + image_extensions + video_extensions + audio_extensions + text_extensions
 
 info_file_suffix = '.info'
 
@@ -111,12 +115,62 @@ def get_parent_path(folder_type: str):
     # outputs
     return outputs_path()
 
+def get_browser_roots():
+    roots = [{
+        "id": "outputs",
+        "name": "Output",
+        "path": outputs_path(),
+        "default": True,
+    }]
+    custom_roots = load_config().get("browser_roots", [])
+    if not isinstance(custom_roots, list):
+        custom_roots = []
+    for root in custom_roots:
+        if not isinstance(root, dict):
+            continue
+        raw_path = root.get("path", "")
+        if not raw_path:
+            continue
+        root_path = realpath(expanduser(raw_path))
+        root_id = "custom-" + hashlib.sha1(root_path.encode("utf-8")).hexdigest()[:12]
+        roots.append({
+            "id": root_id,
+            "name": root.get("name") or path.basename(root_path) or root_path,
+            "path": root_path,
+            "default": False,
+        })
+    return roots
+
+def save_browser_roots(roots):
+    config = load_config()
+    config["browser_roots"] = [
+        {"name": root["name"], "path": root["path"]}
+        for root in roots
+        if root.get("name") and root.get("path")
+    ]
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+    get_config.cache_clear()
+    collections_path.cache_clear()
+    download_logs_path.cache_clear()
+    outputs_path.cache_clear()
+    sources_path.cache_clear()
+
+def get_browser_root_path(root_id: str | None = None, folder_type: str = 'outputs'):
+    if not root_id or root_id == 'outputs':
+        return get_parent_path(folder_type)
+    if folder_type != 'outputs':
+        return None
+    return next((root["path"] for root in get_browser_roots() if root["id"] == root_id), None)
+
 # folder_type = 'outputs', 'collections', 'sources'
-def get_target_folder_files(folder_path: str, folder_type: str = 'outputs'):
+def get_target_folder_files(folder_path: str, folder_type: str = 'outputs', root_id: str | None = None):
     if '..' in folder_path:
         return None
 
-    parent_path = get_parent_path(folder_type)
+    parent_path = get_browser_root_path(root_id, folder_type)
+    if parent_path is None:
+        return None
     files: List[FileInfoDict] = []
     target_path = path.join(parent_path, folder_path)
 
@@ -124,6 +178,7 @@ def get_target_folder_files(folder_path: str, folder_type: str = 'outputs'):
         return []
 
     folder_listing = scandir(target_path)
+    favorite_records = load_favorite_records() if folder_type != 'collections' else {}
     folder_listing = sorted(folder_listing, key=lambda f: (f.is_file(), -f.stat().st_ctime))
     for item in folder_listing:
         if not path.exists(item.path):
@@ -145,25 +200,85 @@ def get_target_folder_files(folder_path: str, folder_type: str = 'outputs'):
                 info_data = json.load(f)
         if item.is_file():
             bytes = item.stat().st_size
-            files.append({
+            file_info = {
                 "type": "file",
                 "name": name,
                 "bytes": bytes,
                 "created_at": created_at,
                 "folder_path": folder_path,
                 "notes": info_data.get("notes", "")
-            })
+            }
+            file_info["is_favorite"] = favorite_key(folder_type, folder_path, name, root_id) in favorite_records
+            file_info["root_id"] = root_id or 'outputs'
+            files.append(file_info)
         elif item.is_dir():
+            child_count, folder_bytes = get_directory_stats(item.path)
             files.append({
                 "type": "dir",
                 "name": name,
-                "bytes": 0,
+                "bytes": folder_bytes,
+                "children_count": child_count,
+                "is_favorite": favorite_key(folder_type, folder_path, name, root_id) in favorite_records,
+                "root_id": root_id or 'outputs',
                 "created_at": created_at,
                 "folder_path": folder_path,
                 "notes": info_data.get("notes", "")
             })
 
     return files
+
+def favorites_manifest_path():
+    return path.join(collections_path(), '.browser-favorites.json')
+
+def favorite_key(folder_type: str, folder_path: str, filename: str, root_id: str | None = None) -> str:
+    return json.dumps([folder_type, root_id or 'outputs', folder_path or '', filename], ensure_ascii=False)
+
+def load_favorite_records() -> dict:
+    manifest = favorites_manifest_path()
+    if not path.exists(manifest):
+        return {}
+    try:
+        with open(manifest, 'r', encoding='utf-8') as f:
+            records = json.load(f)
+        return records if isinstance(records, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+def save_favorite_records(records: dict):
+    with open(favorites_manifest_path(), 'w', encoding='utf-8') as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+
+def get_directory_stats(folder_path: str) -> tuple[int, int]:
+    visible_file_count = 0
+    total = 0
+    for root, _, filenames in walk(folder_path, followlinks=False):
+        relative_root = path.relpath(root, folder_path)
+        visible_root = relative_root == '.' or not any(
+            part.startswith('.') for part in relative_root.split(path.sep)
+        )
+        media_stems = {
+            path.splitext(filename)[0]
+            for filename in filenames
+            if not filename.startswith('.')
+            and path.splitext(filename)[1].lower() in image_extensions + video_extensions
+        }
+        for filename in filenames:
+            file_path = path.join(root, filename)
+            try:
+                total += path.getsize(file_path)
+            except OSError:
+                continue
+
+            if not visible_root or filename.startswith('.'):
+                continue
+            extension = path.splitext(filename)[1].lower()
+            if extension not in white_extensions:
+                continue
+            if extension == '.json' and path.splitext(filename)[0] in media_stems:
+                continue
+            visible_file_count += 1
+
+    return visible_file_count, total
 
 def get_info_filename(filename):
     return path.splitext(filename)[0] + info_file_suffix

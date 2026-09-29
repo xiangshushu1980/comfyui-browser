@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { fetchFiles, onLoadWorkflow, onScroll } from './utils';
   import MediaShow from './MediaShow.svelte';
@@ -19,6 +19,10 @@
   let loaded: boolean = false;
   let searchQuery = '';
   let searchRegex = new RegExp('');
+  let folderHistory = [''];
+  let folderHistoryIndex = 0;
+  let canGoBack = false;
+  let canGoForward = false;
 
   $: if (folderPath != undefined) {
     refresh();
@@ -50,13 +54,75 @@
     });
 
     folderPath = '';
+    resetFolderHistory();
     config = (await fetchConfig()) || {};
     configGitRepo = config?.git_repo;
 
     window.addEventListener('scroll', () => {
       showCursor = onScroll(showCursor, files.length);
     });
+    window.addEventListener('keydown', onFolderShortcut);
+    window.addEventListener('auxclick', onMouseNavigation);
   });
+
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', onFolderShortcut);
+      window.removeEventListener('auxclick', onMouseNavigation);
+    }
+  });
+
+  function updateFolderHistoryButtons() {
+    canGoBack = folderHistoryIndex > 0;
+    canGoForward = folderHistoryIndex < folderHistory.length - 1;
+  }
+
+  function resetFolderHistory(path = '') {
+    folderHistory = [path];
+    folderHistoryIndex = 0;
+    updateFolderHistoryButtons();
+  }
+
+  function navigateToFolder(path: string) {
+    if (path === folderPath) return;
+    folderHistory = folderHistory.slice(0, folderHistoryIndex + 1);
+    folderHistory.push(path);
+    folderHistoryIndex = folderHistory.length - 1;
+    folderPath = path;
+    updateFolderHistoryButtons();
+  }
+
+  function goBack() {
+    if (!canGoBack) return;
+    folderHistoryIndex -= 1;
+    folderPath = folderHistory[folderHistoryIndex];
+    updateFolderHistoryButtons();
+  }
+
+  function goForward() {
+    if (!canGoForward) return;
+    folderHistoryIndex += 1;
+    folderPath = folderHistory[folderHistoryIndex];
+    updateFolderHistoryButtons();
+  }
+
+  function onFolderShortcut(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.key === 'ArrowLeft' ? goBack() : goForward();
+  }
+
+  function onMouseNavigation(event: MouseEvent) {
+    if (event.button !== 3 && event.button !== 4) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.button === 3 ? goBack() : goForward();
+  }
 
   async function fetchConfig() {
     const res = await fetch(comfyUrl + '/browser/config');
@@ -80,6 +146,7 @@
     btn.innerHTML = tt('btn.sync');
 
     folderPath = '';
+    resetFolderHistory();
     files = await fetchFiles(folderType, comfyUrl);
   }
 
@@ -182,19 +249,16 @@
   }
 
   async function onClickDir(dir: any) {
-    folderPath = dir.path;
+    navigateToFolder(dir.path);
   }
 
   async function onClickPath(index: number) {
     if (index === -1) {
-      folderPath = '';
+      navigateToFolder('');
       return;
     }
 
-    folderPath = folderPath
-      .split('/')
-      .slice(0, index + 1)
-      .join('/');
+    navigateToFolder(folderPath.split('/').slice(0, index + 1).join('/'));
   }
 
   function isFilenameValid(filename: string) {
@@ -244,6 +308,14 @@
 </div>
 
 <div class="max-w-full text-sm breadcrumbs flex flex-row ml-4">
+  <div class="flex items-center gap-1 shrink-0">
+    <button class="btn btn-ghost btn-sm px-1" aria-label="Back" title="Back (Alt+←)" disabled={!canGoBack} on:click={goBack}>
+      <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" /></svg>
+    </button>
+    <button class="btn btn-ghost btn-sm px-1" aria-label="Forward" title="Forward (Alt+→)" disabled={!canGoForward} on:click={goForward}>
+      <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6" /></svg>
+    </button>
+  </div>
   <ul class="basis-2/3">
     <li>
       <button on:click={() => onClickPath(-1)}>{$t('common.rootDir')}</button>
