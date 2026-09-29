@@ -761,17 +761,17 @@
         </button>
         {#if file.type === 'dir'}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[22px]" title={file.name}>
+            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, false) as column, index}
-                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block truncate whitespace-nowrap" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
             </div>
           </div>
         {:else}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[22px]" title={file.name}>
+            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, true) as column, index}
-                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block truncate whitespace-nowrap" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
             </div>
           </div>
