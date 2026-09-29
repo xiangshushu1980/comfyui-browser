@@ -101,8 +101,26 @@
 
   function filenameColumns(name: string, isFile: boolean) {
     const segments = filenameSegments(name, isFile).filter((part) => part.text !== '\u00a0');
-    const midpoint = Math.ceil(segments.length / 2);
-    return [segments.slice(0, midpoint), segments.slice(midpoint)];
+    const maxLines = 3;
+    let usedLines = 0;
+    let splitAt = segments.length;
+    for (let index = 0; index < segments.length; index += 1) {
+      const lineUnits = Array.from(segments[index].text).reduce(
+        (total, char) => total + (/\p{Script=Han}/u.test(char) ? 2 : 1),
+        0,
+      );
+      const neededLines = Math.max(1, Math.ceil(lineUnits / 7));
+      if (index > 0 && usedLines + neededLines > maxLines) {
+        splitAt = index;
+        break;
+      }
+      usedLines += neededLines;
+      if (usedLines >= maxLines && index + 1 < segments.length) {
+        splitAt = index + 1;
+        break;
+      }
+    }
+    return [segments.slice(0, splitAt), segments.slice(splitAt)];
   }
 
   function dateInputValue(date: Date) {
@@ -760,16 +778,16 @@
           <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={file.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg>
         </button>
         {#if file.type === 'dir'}
-          <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+          <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
+            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, false) as column, index}
                 <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
             </div>
           </div>
         {:else}
-          <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+          <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden opacity-80">
+            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-2 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, true) as column, index}
                 <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
