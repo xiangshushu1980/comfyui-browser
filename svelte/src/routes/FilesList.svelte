@@ -754,12 +754,12 @@
           <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={file.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg>
         </button>
         {#if file.type === 'dir'}
-          <div class="pointer-events-none absolute inset-x-1 top-1 z-[1] rounded bg-black/75 px-1 py-0.5 text-center">
-            <p class="break-words text-[28px] font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)]" title={file.name}>{#each filenameSegments(file.name, false) as part}<span style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+          <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
+            <p class="mx-auto max-h-[calc(100%_-_4.5rem)] font-bold leading-tight [columns:2] [column-fill:auto] [column-gap:0.75rem] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>{#each filenameSegments(file.name, false) as part}<span class="block break-inside-avoid" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
           </div>
         {:else}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden opacity-80">
-            <p class="max-h-[calc(100%_-_4.5rem)] font-bold leading-tight [columns:2] [column-fill:auto] [column-gap:0.75rem] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-base sm:text-lg" title={file.name}>{#each filenameSegments(file.name, true) as part}<span class="block break-inside-avoid" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+            <p class="mx-auto max-h-[calc(100%_-_4.5rem)] font-bold leading-tight [columns:2] [column-fill:auto] [column-gap:0.75rem] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px] text-center" title={file.name}>{#each filenameSegments(file.name, true) as part}<span class="block break-inside-avoid" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
           </div>
         {/if}
         <div class="pointer-events-none absolute bottom-1 left-1 max-w-[calc(50%-0.35rem)] truncate rounded-md border border-white/15 bg-black/80 px-2 py-1 text-xs leading-4 shadow backdrop-blur-[3px]" style={`color:${dateColor(file.created_at)}`} title={`${file.formattedDatetime} · ${file.formattedSize}`}>
