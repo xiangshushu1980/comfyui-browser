@@ -99,6 +99,14 @@
     return segments;
   }
 
+  function filenameColumns(name: string, isFile: boolean) {
+    const segments = filenameSegments(name, isFile);
+    const midpoint = Math.ceil(segments.length / 2);
+    let splitAt = segments.findIndex((part, index) => index >= midpoint && part.text === '\u00a0');
+    if (splitAt < 0) splitAt = midpoint;
+    return [segments.slice(0, splitAt), segments.slice(splitAt).filter((part) => part.text !== '\u00a0')];
+  }
+
   function dateInputValue(date: Date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -755,11 +763,19 @@
         </button>
         {#if file.type === 'dir'}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
-            <p class="mx-auto max-h-[calc(100%_-_4.5rem)] font-bold leading-tight [columns:2] [column-fill:auto] [column-gap:0.75rem] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>{#each filenameSegments(file.name, false) as part}<span class="block break-inside-avoid" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-3 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+              {#each filenameColumns(file.name, false) as column, index}
+                <p class="break-words {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+              {/each}
+            </div>
           </div>
         {:else}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_4.5rem)] -translate-y-1/2 overflow-hidden opacity-80">
-            <p class="mx-auto max-h-[calc(100%_-_4.5rem)] font-bold leading-tight [columns:2] [column-fill:auto] [column-gap:0.75rem] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px] text-center" title={file.name}>{#each filenameSegments(file.name, true) as part}<span class="block break-inside-avoid" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+            <div class="mx-auto grid max-h-[calc(100%_-_4.5rem)] w-full grid-cols-2 gap-3 font-bold leading-tight [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+              {#each filenameColumns(file.name, true) as column, index}
+                <p class="break-words {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+              {/each}
+            </div>
           </div>
         {/if}
         <div class="pointer-events-none absolute bottom-1 left-1 max-w-[calc(50%-0.35rem)] truncate rounded-md border border-white/15 bg-black/80 px-2 py-1 text-xs leading-4 shadow backdrop-blur-[3px]" style={`color:${dateColor(file.created_at)}`} title={`${file.formattedDatetime} · ${file.formattedSize}`}>
