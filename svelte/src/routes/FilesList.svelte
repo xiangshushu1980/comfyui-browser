@@ -4,6 +4,8 @@
   import { t } from 'svelte-i18n';
   import type { FOLDER_TYPES } from './utils';
   import MediaShow from './MediaShow.svelte';
+  import DeleteTargetHint from './DeleteTargetHint.svelte';
+  import { renderMarkdown } from '../../../web/markdown.js';
   import type Toast from './Toast.svelte';
   import filenameColorConfig from './filename-color-config.json';
 
@@ -37,6 +39,9 @@
   let canGoForward = false;
   let selectedFile: any = null;
   let hoveredFile: any = null;
+  let deleteHoverFile: any = null;
+  let deleteHintX = 0;
+  let deleteHintY = 0;
   let browserRoots: Array<any> = [{ id: 'outputs', name: 'Output', path: '' }];
   let activeRootId = 'outputs';
   let activeRoot: any = browserRoots[0];
@@ -55,6 +60,10 @@
   let pickerLoading = false;
   let standaloneBrowser = false;
   let standalonePreviewText = '';
+  $: standalonePreviewHtml = selectedFile?.fileType === 'markdown'
+    ? renderMarkdown(standalonePreviewText, selectedFile.url)
+    : '';
+  $: standalonePreviewPosition = selectedFile ? getPreviewPosition(selectedFile) : { index: 0, total: 0 };
 
   $: searchCandidates = candidateQuery.trim()
     ? files.filter((file) => file.name.toLowerCase().includes(candidateQuery.trim().toLowerCase())).slice(0, 8)
@@ -87,9 +96,9 @@
   function filenameSegments(name: string, isFile: boolean) {
     const extensionIndex = isFile ? name.lastIndexOf('.') : -1;
     const hasExtension = extensionIndex > 0;
-    const stem = (hasExtension ? name.slice(0, extensionIndex) : name).replace(/_/g, ' ');
-    const segments: Array<{ text: string; color: string }> = (stem.match(/\p{L}+|\p{N}+|[^\p{L}\p{N}]+/gu) || [stem]).map((text) => ({
-      text: /^\s+$/u.test(text) ? '\u00a0' : text,
+    const stem = hasExtension ? name.slice(0, extensionIndex) : name;
+    const segments: Array<{ text: string; color: string }> = (stem.match(/[\p{L}\p{N}]+/gu) || [stem]).map((text) => ({
+      text,
       color: /^\p{N}+$/u.test(text)
         ? filenameColorConfig.numberColor
         : /^\p{L}+$/u.test(text)
@@ -100,7 +109,7 @@
   }
 
   function filenameColumns(name: string, isFile: boolean) {
-    const segments = filenameSegments(name, isFile).filter((part) => part.text !== '\u00a0');
+    const segments = filenameSegments(name, isFile);
     const maxLines = 3;
     let usedLines = 0;
     let splitAt = segments.length;
@@ -333,19 +342,47 @@
     }
     if (event.data.type === 'dismiss-root-settings') rootSettingsOpen = false;
     if (event.data.type === 'preview-closed') selectedFile = null;
-    if (event.data.type === 'preview-navigate') navigatePreview(Number(event.data.direction));
+    if (event.data.type === 'preview-navigate') navigatePreview(Number(event.data.direction), Boolean(event.data.jumpToEdge));
+    if (event.data.type === 'browser-mouse-navigate') {
+      const direction = Number(event.data.direction);
+      if (selectedFile) navigatePreview(direction, Boolean(event.data.jumpToEdge));
+      else direction < 0 ? goBack() : goForward();
+    }
   }
 
-  function navigatePreview(direction: number) {
-    if (!selectedFile || !direction) return;
+  function navigatePreview(direction: number, jumpToEdge = false) {
+    if (!selectedFile || !direction) { toast?.invalid(); return; }
     const previewable = files.filter((file) => file.type === 'file' && file.name.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, showCursor);
-    const index = previewable.findIndex((file) => file.name === selectedFile.name && file.folder_path === selectedFile.folder_path && file.root_id === activeRootId);
-    const next = previewable[index + direction];
-    if (next) void onSelectFile(next);
+    if (previewable.length === 0) { toast?.invalid(); return; }
+    const index = previewable.findIndex((file) => file.name === selectedFile.name && file.folder_path === selectedFile.folder_path);
+    const next = previewable[jumpToEdge ? (direction < 0 ? 0 : previewable.length - 1) : index + direction];
+    if (next && (next.name !== selectedFile.name || next.folder_path !== selectedFile.folder_path)) {
+      void onSelectFile(next);
+      requestAnimationFrame(() => {
+        const card = Array.from(document.querySelectorAll<HTMLElement>('[data-preview-file]'))
+          .find((item) => item.dataset.previewFile === next.name && item.dataset.previewFolder === next.folder_path);
+        card?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+    else toast?.invalid();
+  }
+
+  function getPreviewPosition(file: any) {
+    const previewable = files.filter((item) => item.type === 'file' && item.name.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, showCursor);
+    const index = previewable.findIndex((item) => item.name === file.name);
+    return { index: Math.max(0, index) + 1, total: previewable.length };
   }
 
   function onPreviewNavigateKey(event: KeyboardEvent) {
-    if (!selectedFile || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+    if (!selectedFile) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      selectedFile = null;
+      postPreview(null);
+      return;
+    }
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
     event.preventDefault();
@@ -357,16 +394,17 @@
     viewMode = mode;
   }
 
-  async function onRootChange(event: Event) {
+  async function selectBrowserRoot(rootId: string) {
     syncViewMode();
-    activeRootId = (event.currentTarget as HTMLSelectElement).value;
+    activeRootId = rootId;
     localStorage.setItem(rootStorageKey(), activeRootId);
     folderPath = '';
     localStorage.setItem(folderStorageKey(), folderPath);
+    selectedFile = null;
+    postPreview(null);
     resetFolderHistory();
     refresh();
-    const activeRoot = browserRoots.find((root) => root.id === activeRootId);
-    await loadPickerDirectory(activeRoot?.path);
+    rootSettingsOpen = false;
   }
 
   async function loadPickerDirectory(path?: string) {
@@ -438,34 +476,20 @@
       rootError = result.message || 'Could not add directory';
       return;
     }
-    const result = await response.json();
     const rootsResponse = await fetch(comfyUrl + '/browser/roots');
     const rootsResult = await rootsResponse.json();
     browserRoots = rootsResult.roots || browserRoots;
-    activeRootId = result.root.id;
-    localStorage.setItem(rootStorageKey(), activeRootId);
     newRootPath = '';
-    folderPath = '';
-    localStorage.setItem(folderStorageKey(), folderPath);
-    resetFolderHistory();
-    refresh();
-    await loadPickerDirectory(result.root.path);
+    await selectBrowserRoot('outputs');
   }
 
-  async function removeBrowserRoot() {
+  async function removeBrowserRoot(rootId: string) {
     syncViewMode();
-    if (activeRootId === 'outputs') return;
-    const response = await fetch(comfyUrl + `/browser/roots/${encodeURIComponent(activeRootId)}`, { method: 'DELETE' });
+    if (rootId === 'outputs') return;
+    const response = await fetch(comfyUrl + `/browser/roots/${encodeURIComponent(rootId)}`, { method: 'DELETE' });
     if (!response.ok) return;
-    browserRoots = browserRoots.filter((root) => root.id !== activeRootId);
-    activeRootId = 'outputs';
-    localStorage.setItem(rootStorageKey(), activeRootId);
-    folderPath = '';
-    localStorage.setItem(folderStorageKey(), folderPath);
-    resetFolderHistory();
-    refresh();
-    const outputRoot = browserRoots.find((root) => root.id === 'outputs');
-    await loadPickerDirectory(outputRoot?.path);
+    browserRoots = browserRoots.filter((root) => root.id !== rootId);
+    if (activeRootId === rootId) await selectBrowserRoot('outputs');
   }
 
   function updateFolderHistoryButtons() {
@@ -503,7 +527,7 @@
   }
 
   function goBack() {
-    if (!canGoBack) return;
+    if (!canGoBack) { toast?.invalid(); return; }
     syncViewMode();
     folderHistoryIndex -= 1;
     folderPath = folderHistory[folderHistoryIndex];
@@ -512,7 +536,7 @@
   }
 
   function goForward() {
-    if (!canGoForward) return;
+    if (!canGoForward) { toast?.invalid(); return; }
     syncViewMode();
     folderHistoryIndex += 1;
     folderPath = folderHistory[folderHistoryIndex];
@@ -550,7 +574,12 @@
     if (event.button !== 3 && event.button !== 4) return;
     event.preventDefault();
     event.stopPropagation();
-    event.button === 3 ? goBack() : goForward();
+    if (selectedFile) {
+      const previewDirection = event.button === 3 ? 1 : -1;
+      navigatePreview(previewDirection, event.ctrlKey);
+    } else {
+      event.button === 3 ? goBack() : goForward();
+    }
   }
 
   async function onSelectFile(file: any) {
@@ -562,7 +591,7 @@
     selectedFile = file;
     if (standaloneBrowser) {
       standalonePreviewText = '';
-      if (file.fileType === 'text' || file.fileType === 'html' || file.fileType === 'json') {
+      if (file.fileType === 'text' || file.fileType === 'html' || file.fileType === 'json' || file.fileType === 'markdown') {
         try {
           const response = await fetch(file.url);
           standalonePreviewText = response.ok ? await response.text() : `Could not load preview: HTTP ${response.status}`;
@@ -584,7 +613,7 @@
 
   function postPreview(file: any) {
     if (window.top !== window) {
-      window.top?.postMessage({ source: 'comfyui-browser', type: 'preview', file, mode: viewMode }, '*');
+      window.top?.postMessage({ source: 'comfyui-browser', type: 'preview', file, mode: viewMode, position: file ? getPreviewPosition(file) : null }, '*');
     }
   }
 
@@ -613,7 +642,7 @@
 
 
   async function onDelete(file: any) {
-    const ret = confirm(tt('You want to delete this file?') + ' ' + file.name);
+    const ret = confirm(`Delete "${file.name}"?`);
     if (!ret) {
       return;
     }
@@ -634,6 +663,16 @@
       tt('Deleted the file') + file.name,
       tt('Failed to delete the file'),
     );
+  }
+
+  function updateDeleteHint(file: any, event: PointerEvent) {
+    deleteHoverFile = file;
+    deleteHintX = Math.max(8, Math.min(window.innerWidth - 304, event.clientX + 16));
+    deleteHintY = Math.max(8, Math.min(window.innerHeight - 220, event.clientY + 16));
+  }
+
+  function clearDeleteHint(file: any) {
+    if (deleteHoverFile === file) deleteHoverFile = null;
   }
 
   async function onClickDir(dir: any) {
@@ -658,10 +697,10 @@
 <div class="relative z-30 ml-3 mt-2 flex min-w-0 flex-nowrap items-center gap-1 text-sm">
   <div class="flex shrink-0 items-center gap-1">
     <div class="flex shrink-0 items-center gap-0.5">
-      <button class="btn btn-ghost btn-sm px-1" aria-label="Back" title="Back (Alt+←)" disabled={!canGoBack} on:click={goBack}>
+      <button class="btn btn-ghost btn-sm px-1" aria-label="Back" title="Back (Alt+←)" aria-disabled={!canGoBack} on:click={goBack}>
         <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" /></svg>
       </button>
-      <button class="btn btn-ghost btn-sm px-1" aria-label="Forward" title="Forward (Alt+→)" disabled={!canGoForward} on:click={goForward}>
+      <button class="btn btn-ghost btn-sm px-1" aria-label="Forward" title="Forward (Alt+→)" aria-disabled={!canGoForward} on:click={goForward}>
         <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6" /></svg>
       </button>
     </div>
@@ -738,15 +777,7 @@
     </button>
     {#if rootSettingsOpen}
       <section class="absolute right-0 top-full z-50 mt-2 flex h-[min(72vh,38rem)] w-[min(92vw,28rem)] flex-col overflow-hidden rounded-lg border border-base-content/20 bg-base-200/95 p-3 shadow-2xl backdrop-blur" aria-label="Directory settings">
-        <div class="flex items-center gap-2">
-          <label class="text-xs opacity-70" for="browser-root-select">Directory</label>
-          <select id="browser-root-select" class="select select-bordered select-sm min-w-0 flex-1" value={activeRootId} on:change={onRootChange}>
-            {#each browserRoots as root}<option value={root.id}>{root.name}</option>{/each}
-          </select>
-          {#if activeRootId !== 'outputs'}
-            <button class="btn btn-ghost btn-xs text-error" on:click={removeBrowserRoot} title="Remove this directory">✕</button>
-          {/if}
-        </div>
+        <p class="px-1 text-xs opacity-70">Add a directory here, then choose it from the browser root to switch.</p>
         <div class="mt-3 flex min-h-0 flex-1 flex-col rounded border border-base-content/15 p-2">
           <div class="mb-2 flex items-center gap-2">
             <input
@@ -794,10 +825,26 @@
 {/if}
 </div>
 
+{#if folderType === 'outputs' && !folderPath}
+  <nav class="mx-3 my-2 flex flex-wrap gap-2" aria-label="Browser directories">
+    {#each browserRoots as root}
+      <div class="flex max-w-full items-center rounded-lg border {root.id === activeRootId ? 'border-primary bg-primary/10' : 'border-base-content/20 bg-base-200'}">
+        <button class="flex min-w-0 flex-col px-3 py-2 text-left" title={root.path} on:click={() => selectBrowserRoot(root.id)}>
+          <span class="font-semibold">{root.name}</span>
+          <span class="max-w-[min(70vw,32rem)] truncate text-xs opacity-65">{root.path}</span>
+        </button>
+        {#if !root.default}
+          <button class="btn btn-ghost btn-xs mr-1 text-error" aria-label={`Remove ${root.name}`} title="Remove this directory" on:click={() => removeBrowserRoot(root.id)}>✕</button>
+        {/if}
+      </div>
+    {/each}
+  </nav>
+{/if}
+
 <div class="grid w-full gap-2" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));">
   {#each filteredFiles.slice(0, showCursor) as file}
     {#if WHITE_EXTS.includes(file.fileType)}
-      <div class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={() => hoveredFile = file} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
+      <div data-preview-file={file.name} data-preview-folder={file.folder_path} class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black transition-shadow {selectedFile?.name === file.name && selectedFile?.folder_path === file.folder_path ? 'ring-2 ring-sky-300 shadow-[0_0_24px_6px_rgba(56,189,248,.75)]' : ''} {deleteHoverFile === file ? 'ring-2 ring-red-500 shadow-[0_0_22px_5px_rgba(239,68,68,.8)]' : ''}" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={() => hoveredFile = file} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
         <MediaShow {file} styleClass="w-full min-h-24 flex-auto" {onClickDir} {onSelectFile} />
 
         <button
@@ -808,6 +855,17 @@
           on:click={async () => await onToggleFavorite(file)}
         >
           <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={file.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg>
+        </button>
+        <button
+          class="btn btn-circle btn-ghost btn-xs absolute right-1 top-1 z-10 h-7 min-h-0 w-7 p-0 bg-black/40 text-red-200 shadow backdrop-blur-sm hover:bg-red-950/80 hover:text-red-100"
+          aria-label={`Delete ${file.name}`}
+          title="Delete"
+          on:pointerenter={(event) => updateDeleteHint(file, event)}
+          on:pointermove={(event) => updateDeleteHint(file, event)}
+          on:pointerleave={() => clearDeleteHint(file)}
+          on:click|stopPropagation={() => onDelete(file)}
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v6m6-6v6" /></svg>
         </button>
         {#if file.type === 'dir'}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
@@ -837,6 +895,7 @@
     {/if}
   {/each}
 </div>
+<DeleteTargetHint file={deleteHoverFile} x={deleteHintX} y={deleteHintY} />
 
 
 <div class="flex justify-center">
@@ -855,17 +914,36 @@
       <span class="text-xs opacity-70">{selectedFile.formattedSize}</span>
       <button class="btn btn-ghost btn-sm" aria-label="Close preview" on:click={() => selectedFile = null}>✕</button>
     </div>
-    <div class="min-h-0 flex-1 flex items-center justify-center overflow-auto">
+    <div class="relative min-h-0 flex-1 flex items-center justify-center overflow-hidden">
       {#if selectedFile.fileType === 'image'}
         <img class="max-w-full max-h-full object-contain" src={selectedFile.previewUrl} alt={selectedFile.name} />
       {:else if selectedFile.fileType === 'video'}
         <video class="max-w-full max-h-full" src={selectedFile.previewUrl} controls playsinline><track kind="captions" /></video>
       {:else if selectedFile.fileType === 'audio'}
         <audio class="w-full max-w-2xl" src={selectedFile.url} controls />
+      {:else if selectedFile.fileType === 'markdown'}
+        <div class="comfy-browser-markdown h-full w-full overflow-auto rounded bg-base-100/80 p-4">
+          {@html standalonePreviewHtml}
+        </div>
       {:else}
         <pre class="w-full h-full overflow-auto whitespace-pre-wrap break-words rounded bg-base-100/80 p-3 text-xs">{standalonePreviewText}</pre>
       {/if}
+      <button
+        class="absolute left-3 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/50 bg-black/70 p-0 text-white [box-shadow:0_2px_10px_rgba(0,0,0,.45)] transition-transform duration-100 active:scale-90 {standalonePreviewPosition.index <= 1 ? 'cursor-not-allowed border-white/20 bg-neutral-500/60 text-white/50 opacity-50' : ''}"
+        aria-label="Previous preview"
+        title="Previous preview (←)"
+        aria-disabled={standalonePreviewPosition.index <= 1}
+        on:click|stopPropagation={() => navigatePreview(-1)}
+      ><svg viewBox="0 0 24 24" aria-hidden="true" class="h-[22px] w-[22px]"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      <button
+        class="absolute right-3 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/50 bg-black/70 p-0 text-white [box-shadow:0_2px_10px_rgba(0,0,0,.45)] transition-transform duration-100 active:scale-90 {standalonePreviewPosition.index >= standalonePreviewPosition.total ? 'cursor-not-allowed border-white/20 bg-neutral-500/60 text-white/50 opacity-50' : ''}"
+        aria-label="Next preview"
+        title="Next preview (→)"
+        aria-disabled={standalonePreviewPosition.index >= standalonePreviewPosition.total}
+        on:click|stopPropagation={() => navigatePreview(1)}
+      ><svg viewBox="0 0 24 24" aria-hidden="true" class="h-[22px] w-[22px]"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
     </div>
+    <div class="flex h-10 shrink-0 items-center justify-center text-xs tabular-nums text-white/75" aria-live="polite">{standalonePreviewPosition.index}/{standalonePreviewPosition.total}</div>
   </section>
 {/if}
 

@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { $el, ComfyDialog } from "../../scripts/ui.js";
 import { api } from "../../scripts/api.js";
+import { renderMarkdown } from "./markdown.js";
 
 const browserUrl = "./browser/web/index.html";
 
@@ -131,13 +132,24 @@ class BrowserDialog extends ComfyDialog {
       if (event.source !== this.browserIframe.contentWindow) return;
       const message = event.data;
       if (message?.source !== "comfyui-browser") return;
+      if (message.type === "invalid-operation") {
+        this.flashCaptureGlow();
+        return;
+      }
       if (message.type === "toggle-view-mode") {
         this.toggleSidePanel();
         return;
       }
+      if (message.type === "preview-state") {
+        this.updatePreviewNavigationState(message.position);
+        return;
+      }
       if (message.type !== "preview") return;
       this.previewInteractionCounter = (this.previewInteractionCounter || 0) + 1;
-      if (message.file) this.openPreview(message.file, message.mode);
+      if (message.file) {
+        this.openPreview(message.file, message.mode);
+        this.updatePreviewNavigationState(message.position);
+      }
       else this.closePreview();
     };
     window.addEventListener("message", this.onPreviewMessage);
@@ -147,7 +159,14 @@ class BrowserDialog extends ComfyDialog {
     };
     window.addEventListener("pointerdown", this.onBrowserOutsidePointerDown);
     this.onPreviewKeyDown = (event) => {
-      if (!this.previewOpen || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+      if (!this.previewOpen) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.closePreview();
+        return;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input, textarea, select, button, video, audio, [contenteditable='true']")) return;
       event.preventDefault();
@@ -158,6 +177,26 @@ class BrowserDialog extends ComfyDialog {
       }, "*");
     };
     window.addEventListener("keydown", this.onPreviewKeyDown);
+    this.onMouseNavigation = (event) => {
+      if (event.button !== 3 && event.button !== 4) return;
+      const browserVisible = this.element.isConnected && getComputedStyle(this.element).display !== "none";
+      if (!this.previewOpen && !browserVisible) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (this.previewOpen) {
+        const direction = event.button === 3 ? 1 : -1;
+        this.navigatePreview(direction, event.ctrlKey);
+      } else {
+        const direction = event.button === 3 ? -1 : 1;
+        this.browserIframe.contentWindow?.postMessage({
+          source: "comfyui-browser-host",
+          type: "browser-mouse-navigate",
+          direction,
+          jumpToEdge: event.ctrlKey,
+        }, "*");
+      }
+    };
+    window.addEventListener("auxclick", this.onMouseNavigation, true);
 
     this.resizeObserver = new ResizeObserver(this.onResize.bind(this));
     this.resizeObserver.observe(this.element);
@@ -226,11 +265,19 @@ class BrowserDialog extends ComfyDialog {
       minHeight: "0",
       overflow: "hidden",
       display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
+      flexDirection: "column",
       borderRadius: "4px",
       background: "rgba(0,0,0,.25)",
     });
+    this.previewContent = document.createElement("div");
+    Object.assign(this.previewContent.style, { position: "relative", flex: "1 1 auto", minHeight: "0", width: "100%", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" });
+    this.previewFooter = document.createElement("div");
+    Object.assign(this.previewFooter.style, { flex: "0 0 56px", display: "flex", alignItems: "center", justifyContent: "center", gap: "16px", color: "rgba(255,255,255,.8)", fontSize: "13px" });
+    this.previewPositionLabel = document.createElement("span");
+    this.previewPositionLabel.setAttribute("aria-live", "polite");
+    Object.assign(this.previewPositionLabel.style, { minWidth: "56px", textAlign: "center", fontVariantNumeric: "tabular-nums" });
+    this.previewFooter.append(this.previewPositionLabel);
+    this.previewStage.append(this.previewContent, this.previewFooter);
     this.previewStage.title = "← / → previous or next · scroll to zoom · drag to move · double-click to reset";
     this.previewStage.addEventListener("wheel", (event) => {
       if (!this.previewImage) return;
@@ -243,6 +290,10 @@ class BrowserDialog extends ComfyDialog {
     this.previewStage.addEventListener("pointerup", () => this.stopImagePan());
     this.previewStage.addEventListener("pointercancel", () => this.stopImagePan());
     window.addEventListener("blur", () => this.stopImagePan());
+    this.previewNavigationButtons = [
+      this.createPreviewNavigationButton(-1, "Previous preview (←)"),
+      this.createPreviewNavigationButton(1, "Next preview (→)"),
+    ];
 
     this.previewDialog.append(header, this.previewStage);
     const edge = document.createElement("div");
@@ -263,6 +314,7 @@ class BrowserDialog extends ComfyDialog {
     this.previewDetached = false;
     this.onPreviewOutsidePointerDown = (event) => {
       if (!this.previewOpen || this.previewDialog.contains(event.target)) return;
+      if (event.button === 3 || event.button === 4) return;
       if (event.target === this.browserIframe) {
         const interaction = this.previewInteractionCounter = (this.previewInteractionCounter || 0) + 1;
         this.closePreview(false);
@@ -278,12 +330,17 @@ class BrowserDialog extends ComfyDialog {
   }
 
   openPreview(file, mode = this.viewMode) {
-    this.previewMode = mode === "side" ? "side" : "full";
+    const nextMode = mode === "side" ? "side" : "full";
+    if (!this.previewWidth || this.previewWidthMode !== nextMode) {
+      this.previewWidth = nextMode === "full"
+        ? Math.min(Math.max(360, this.element.getBoundingClientRect().width * 0.72), window.innerWidth * 0.88)
+        : Math.min(window.innerWidth * 0.38, 640);
+      this.previewWidthMode = nextMode;
+    }
+    this.previewMode = nextMode;
+    this.positionPreviewNavigationButtons();
     this.previewDetached = false;
     this.previewOpen = true;
-    this.previewWidth = this.previewMode === "full"
-      ? Math.min(window.innerWidth * 0.78, 1200)
-      : Math.min(window.innerWidth * 0.38, 640);
     this.previewFile = file;
     this.previewDialog.style.display = "flex";
     this.positionPreviewDialog();
@@ -303,6 +360,111 @@ class BrowserDialog extends ComfyDialog {
     if (notifyFrame) this.browserIframe.contentWindow?.postMessage({ source: "comfyui-browser-host", type: "preview-closed" }, "*");
   }
 
+  navigatePreview(direction, jumpToEdge = false) {
+    if (!this.previewOpen || !direction) return;
+    const button = this.previewNavigationButtons.find((item) => item.dataset.direction === String(direction));
+    if (!jumpToEdge && button?.getAttribute("aria-disabled") === "true") {
+      this.flashCaptureGlow();
+      return;
+    }
+    this.browserIframe.contentWindow?.postMessage({
+      source: "comfyui-browser-host",
+      type: "preview-navigate",
+      direction,
+      jumpToEdge,
+    }, "*");
+  }
+
+  flashCaptureGlow() {
+    const target = this.previewOpen ? this.previewDialog : this.element;
+    if (!target?.isConnected) return;
+    const rect = target.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const glow = document.createElement("div");
+    Object.assign(glow.style, {
+      position: "fixed",
+      left: `${rect.left}px`, top: `${rect.top}px`,
+      width: `${rect.width}px`, height: `${rect.height}px`,
+      boxSizing: "border-box", zIndex: "1003", pointerEvents: "none",
+      border: "2px solid rgba(255, 32, 32, .95)", borderRadius: "8px",
+      boxShadow: "inset 0 0 38px 8px rgba(255, 20, 20, .65), 0 0 24px 5px rgba(255, 20, 20, .8)",
+    });
+    document.body.appendChild(glow);
+    glow.animate([{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0 }], { duration: 720, easing: "ease-out" })
+      .onfinish = () => glow.remove();
+  }
+
+  createPreviewNavigationButton(direction, title) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.dataset.direction = String(direction);
+    button.innerHTML = direction < 0
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    Object.assign(button.style, {
+      zIndex: "1",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      boxSizing: "border-box",
+      flex: "0 0 48px",
+      width: "48px",
+      height: "48px",
+      padding: "0",
+      border: "1px solid rgba(255,255,255,.5)",
+      borderRadius: "50%",
+      background: "rgba(0,0,0,.68)",
+      color: "#fff",
+      lineHeight: "0",
+      cursor: "pointer",
+      boxShadow: "0 2px 10px rgba(0,0,0,.45)",
+      scale: "1",
+      transition: "scale 120ms ease, background-color 120ms ease, opacity 120ms ease",
+    });
+    button.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      if (button.getAttribute("aria-disabled") !== "true") button.style.scale = ".9";
+    });
+    const releasePress = () => { button.style.scale = "1"; };
+    button.addEventListener("pointerup", releasePress);
+    button.addEventListener("pointercancel", releasePress);
+    button.addEventListener("pointerleave", releasePress);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.navigatePreview(direction);
+    });
+    return button;
+  }
+
+  positionPreviewNavigationButtons() {
+    for (const button of this.previewNavigationButtons || []) {
+      if (this.previewMode === "side") {
+        Object.assign(button.style, { position: "static", top: "auto", bottom: "auto", left: "auto", right: "auto", transform: "none" });
+        this.previewFooter.insertBefore(button, this.previewPositionLabel);
+      } else {
+        const previous = button.dataset.direction === "-1";
+        Object.assign(button.style, { position: "absolute", top: "50%", bottom: "auto", left: previous ? "12px" : "auto", right: previous ? "auto" : "12px", transform: "translateY(-50%)" });
+        this.previewContent.appendChild(button);
+      }
+    }
+  }
+
+  updatePreviewNavigationState(position) {
+    if (!position || !Number.isFinite(position.index) || !Number.isFinite(position.total)) return;
+    this.previewPositionLabel.textContent = `${position.index}/${position.total}`;
+    const atStart = position.index <= 1;
+    const atEnd = position.index >= position.total;
+    for (const button of this.previewNavigationButtons) {
+      const disabled = button.dataset.direction === "-1" ? atStart : atEnd;
+      button.style.opacity = disabled ? ".38" : "1";
+      button.style.cursor = disabled ? "not-allowed" : "pointer";
+      button.style.background = disabled ? "rgba(100,100,100,.55)" : "rgba(0,0,0,.68)";
+      button.setAttribute("aria-disabled", String(disabled));
+    }
+  }
+
   positionPreviewDialog() {
     if (!this.previewOpen || !this.previewDialog || this.previewDetached) return;
     const rect = this.element.getBoundingClientRect();
@@ -310,7 +472,8 @@ class BrowserDialog extends ComfyDialog {
       const gap = 12;
       const minWidth = Math.min(360, window.innerWidth - 16);
       const rightSpace = window.innerWidth - rect.right - gap - 8;
-      const desiredWidth = Math.min(Math.max(360, rect.width * 0.72), window.innerWidth * 0.88);
+      const defaultWidth = Math.min(Math.max(360, rect.width * 0.72), window.innerWidth * 0.88);
+      const desiredWidth = Math.min(this.previewWidth || defaultWidth, window.innerWidth * 0.88);
       const useRightSide = rightSpace >= minWidth;
       const width = useRightSide ? Math.min(desiredWidth, rightSpace) : desiredWidth;
       const height = Math.min(Math.max(300, rect.height * 0.82), window.innerHeight * 0.88);
@@ -344,7 +507,7 @@ class BrowserDialog extends ComfyDialog {
     const token = ++this.previewToken;
     this.previewTitle.textContent = file.name || "Preview";
     this.previewSize.textContent = file.formattedSize || "";
-    this.previewStage.replaceChildren();
+    this.previewContent.replaceChildren();
     this.previewImage = null;
     this.resetPreviewZoom();
     const url = file.previewUrl || file.url;
@@ -355,34 +518,42 @@ class BrowserDialog extends ComfyDialog {
       image.draggable = false;
       Object.assign(image.style, { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", userSelect: "none", transformOrigin: "center", cursor: "grab" });
       this.previewImage = image;
-      this.previewStage.appendChild(image);
+      this.previewContent.appendChild(image);
     } else if (file.fileType === "video") {
       const video = document.createElement("video");
       video.src = url;
       video.controls = true;
       video.playsInline = true;
       Object.assign(video.style, { maxWidth: "100%", maxHeight: "100%", background: "#000" });
-      this.previewStage.appendChild(video);
+      this.previewContent.appendChild(video);
     } else if (file.fileType === "audio") {
       const audio = document.createElement("audio");
       audio.src = file.url;
       audio.controls = true;
       audio.style.width = "min(90%, 600px)";
-      this.previewStage.appendChild(audio);
+      this.previewContent.appendChild(audio);
     } else {
-      const pre = document.createElement("pre");
-      Object.assign(pre.style, { width: "100%", height: "100%", overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: "0", padding: "12px", fontSize: "12px", background: "rgba(0,0,0,.2)" });
-      pre.textContent = "Loading preview…";
-      this.previewStage.appendChild(pre);
+      const textPreview = document.createElement(file.fileType === "markdown" ? "div" : "pre");
+      if (file.fileType === "markdown") {
+        Object.assign(textPreview.style, { width: "100%", height: "100%", overflow: "auto", margin: "0", padding: "12px", background: "rgba(0,0,0,.2)" });
+      } else {
+        Object.assign(textPreview.style, { width: "100%", height: "100%", overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: "0", padding: "12px", fontSize: "12px", background: "rgba(0,0,0,.2)" });
+      }
+      textPreview.textContent = "Loading preview…";
+      this.previewContent.appendChild(textPreview);
       fetch(file.url).then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.text();
       }).then((text) => {
-        if (token === this.previewToken) pre.textContent = text;
+        if (token === this.previewToken) {
+          if (file.fileType === "markdown") textPreview.innerHTML = renderMarkdown(text, file.url);
+          else textPreview.textContent = text;
+        }
       }).catch((error) => {
-        if (token === this.previewToken) pre.textContent = `Could not load preview: ${error}`;
+        if (token === this.previewToken) textPreview.textContent = `Could not load preview: ${error}`;
       });
     }
+    this.positionPreviewNavigationButtons();
   }
 
   setPreviewZoom(value) {
@@ -403,7 +574,7 @@ class BrowserDialog extends ComfyDialog {
   }
 
   startImagePan(event) {
-    if (!this.previewImage || event.button !== 0) return;
+    if (!this.previewImage || event.button !== 0 || (event.target instanceof Element && event.target.closest("button"))) return;
     this.imagePanOrigin = { x: event.clientX, y: event.clientY, panX: this.previewPanX, panY: this.previewPanY };
     this.previewStage.setPointerCapture(event.pointerId);
   }
@@ -510,6 +681,7 @@ class BrowserDialog extends ComfyDialog {
     if (this.previewOpen) {
       this.previewMode = this.viewMode;
       this.previewDetached = false;
+      this.positionPreviewNavigationButtons();
       this.positionPreviewDialog();
     }
 

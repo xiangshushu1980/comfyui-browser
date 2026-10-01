@@ -52,7 +52,7 @@
       aria-label={`Preview ${file.name}`}
       on:click={selectFile}
     >
-      {#if file.fileType === 'json'}
+      {#if file.fileType === 'json' || file.fileType === 'markdown'}
         <div class="flex h-full w-full items-center justify-center">
           <span class="flex h-14 w-14 items-center justify-center rounded-xl bg-black/25 text-accent">
             <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7.5A2.5 2.5 0 0 0 5 7.5v1A2.5 2.5 0 0 1 2.5 11 2.5 2.5 0 0 1 5 13.5v1A2.5 2.5 0 0 0 7.5 17H9m6-12h1.5A2.5 2.5 0 0 1 19 7.5v1a2.5 2.5 0 0 0 2.5 2.5A2.5 2.5 0 0 0 19 13.5v1a2.5 2.5 0 0 1-2.5 2.5H15"/></svg>

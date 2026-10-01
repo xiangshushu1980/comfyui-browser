@@ -4,6 +4,7 @@
   import { fetchFiles, onLoadWorkflow, onScroll } from './utils';
   import MediaShow from './MediaShow.svelte';
   import Toast from './Toast.svelte';
+  import DeleteTargetHint from './DeleteTargetHint.svelte';
 
   export let comfyUrl: string;
 
@@ -15,6 +16,9 @@
   let configGitRepo = '';
   let showCursor = 20;
   let toast: Toast;
+  let deleteHoverFile: any = null;
+  let deleteHintX = 0;
+  let deleteHintY = 0;
   let folderPath: string;
   let loaded: boolean = false;
   let searchQuery = '';
@@ -93,14 +97,14 @@
   }
 
   function goBack() {
-    if (!canGoBack) return;
+    if (!canGoBack) { toast?.invalid(); return; }
     folderHistoryIndex -= 1;
     folderPath = folderHistory[folderHistoryIndex];
     updateFolderHistoryButtons();
   }
 
   function goForward() {
-    if (!canGoForward) return;
+    if (!canGoForward) { toast?.invalid(); return; }
     folderHistoryIndex += 1;
     folderPath = folderHistory[folderHistoryIndex];
     updateFolderHistoryButtons();
@@ -167,7 +171,7 @@
   }
 
   async function onDelete(file: any) {
-    const ret = confirm(tt('toast.deleteConfirm') + file.name);
+    const ret = confirm(`Delete "${file.name}"?`);
     if (!ret) {
       return;
     }
@@ -187,6 +191,16 @@
       tt('toast.deleteSuccess') + file.name,
       tt('toast.deleteFailed'),
     );
+  }
+
+  function updateDeleteHint(file: any, event: PointerEvent) {
+    deleteHoverFile = file;
+    deleteHintX = Math.max(8, Math.min(window.innerWidth - 304, event.clientX + 16));
+    deleteHintY = Math.max(8, Math.min(window.innerHeight - 220, event.clientY + 16));
+  }
+
+  function clearDeleteHint(file: any) {
+    if (deleteHoverFile === file) deleteHoverFile = null;
   }
 
   async function updateFile(file: any, payload: any) {
@@ -309,10 +323,10 @@
 
 <div class="max-w-full text-sm breadcrumbs flex flex-row ml-4">
   <div class="flex items-center gap-1 shrink-0">
-    <button class="btn btn-ghost btn-sm px-1" aria-label="Back" title="Back (Alt+←)" disabled={!canGoBack} on:click={goBack}>
+    <button class="btn btn-ghost btn-sm px-1" aria-label="Back" title="Back (Alt+←)" aria-disabled={!canGoBack} on:click={goBack}>
       <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" /></svg>
     </button>
-    <button class="btn btn-ghost btn-sm px-1" aria-label="Forward" title="Forward (Alt+→)" disabled={!canGoForward} on:click={goForward}>
+    <button class="btn btn-ghost btn-sm px-1" aria-label="Forward" title="Forward (Alt+→)" aria-disabled={!canGoForward} on:click={goForward}>
       <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6" /></svg>
     </button>
   </div>
@@ -337,8 +351,8 @@
   {#each files
     .filter((f) => searchRegex.test(f.name.toLowerCase()) || searchRegex.test(f.notes.toLowerCase()))
     .slice(0, showCursor) as file}
-    <li class="flex h-16 sm:h-28 border-0 space-x-4 p-2 bg-info-content">
-      <MediaShow {file} styleClass="w-16 sm:w-28" {onClickDir} />
+    <li class="flex h-16 sm:h-28 border-0 space-x-4 p-2 bg-info-content rounded transition-shadow {deleteHoverFile === file ? 'ring-2 ring-red-500 shadow-[0_0_22px_5px_rgba(239,68,68,.75)]' : ''}">
+      <div class="w-16 sm:w-28 shrink-0"><MediaShow {file} styleClass="w-full" {onClickDir} /></div>
       <div class="space-y-2 w-96 relative">
         <input
           type="text"
@@ -360,6 +374,9 @@
           {/if}
           <button
             class="btn btn-link btn-sm p-0 no-underline text-error ml-52"
+            on:pointerenter={(event) => updateDeleteHint(file, event)}
+            on:pointermove={(event) => updateDeleteHint(file, event)}
+            on:pointerleave={() => clearDeleteHint(file)}
             on:click={async () => await onDelete(file)}
           >
             <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -382,6 +399,7 @@
     </li>
   {/each}
 </ul>
+<DeleteTargetHint file={deleteHoverFile} x={deleteHintX} y={deleteHintY} />
 
 <div class="flex justify-center">
   {#if files.length > showCursor}

@@ -8,7 +8,7 @@ export const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'avi', 'mkv'];
 export const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
 export const TEXT_EXTS = ['txt', 'md', 'csv', 'log', 'html', 'json'];
 export const JSON_EXTS = ['json'];
-export const WHITE_EXTS = ['html', 'image', 'video', 'audio', 'text', 'json', 'dir'];
+export const WHITE_EXTS = ['html', 'image', 'video', 'audio', 'text', 'markdown', 'json', 'dir'];
 const SUPPORTED_FILE_EXTS = ['html', 'json', ...IMAGE_EXTS, ...VIDEO_EXTS, ...AUDIO_EXTS, ...TEXT_EXTS];
 
 const localStorageKey = 'comfyui-browser';
@@ -70,6 +70,9 @@ function processFile(
   }
   if (TEXT_EXTS.includes(extname) && !['html', 'json'].includes(extname)) {
     file['fileType'] = 'text';
+  }
+  if (extname === 'md') {
+    file['fileType'] = 'markdown';
   }
   if (! file['fileType']) {
     return;
