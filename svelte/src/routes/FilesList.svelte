@@ -40,9 +40,12 @@
   let canGoForward = false;
   let selectedFile: any = null;
   let hoveredFile: any = null;
-  let deleteHoverFile: any = null;
+  let deleteConfirmFile: any = null;
   let deleteHintX = 0;
   let deleteHintY = 0;
+  let pointerX = 0;
+  let pointerY = 0;
+  let deleteHintHovered = false;
   let browserRoots: Array<any> = [{ id: 'outputs', name: 'Output', path: '' }];
   let activeRootId = 'outputs';
   let activeRoot: any = browserRoots[0];
@@ -299,6 +302,7 @@
     window.addEventListener('keydown', onPreviewNavigateKey);
     window.addEventListener('keydown', onSearchShortcut);
     window.addEventListener('auxclick', onMouseNavigation);
+    window.addEventListener('pointermove', onGlobalPointerMove);
   });
 
   onDestroy(() => {
@@ -308,6 +312,7 @@
       window.removeEventListener('keydown', onPreviewNavigateKey);
       window.removeEventListener('keydown', onSearchShortcut);
       window.removeEventListener('auxclick', onMouseNavigation);
+      window.removeEventListener('pointermove', onGlobalPointerMove);
       window.removeEventListener('message', onHostMessage);
       postPreview(null);
     }
@@ -562,6 +567,13 @@
 
   function onFileShortcut(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
+    if (deleteConfirmFile) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelDelete();
+      }
+      return;
+    }
     if (!hoveredFile || target?.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     const key = event.key.toLowerCase();
@@ -572,7 +584,7 @@
     event.stopPropagation();
     if (key === 's') void onToggleFavorite(hoveredFile);
     if (key === 'l') void onLoadWorkflow(hoveredFile, comfyApp, toast);
-    if (key === 'd') void onDelete(hoveredFile);
+    if (key === 'd') openDeleteConfirm(hoveredFile);
   }
 
   function onMouseNavigation(event: MouseEvent) {
@@ -649,12 +661,38 @@
   }
 
 
-  async function onDelete(file: any) {
-    const ret = confirm(`Delete "${file.name}"?`);
-    if (!ret) {
-      return;
-    }
+  function openDeleteConfirm(file: any) {
+    if (!file) return;
+    deleteConfirmFile = file;
+    deleteHintHovered = false;
+    positionDeleteHint(pointerX, pointerY);
+  }
 
+  function positionDeleteHint(x: number, y: number) {
+    deleteHintX = Math.max(8, Math.min(window.innerWidth - 336, x + 16));
+    deleteHintY = Math.max(8, Math.min(window.innerHeight - 340, y + 16));
+  }
+
+  function onGlobalPointerMove(event: PointerEvent) {
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    if (deleteConfirmFile && !deleteHintHovered && hoveredFile === deleteConfirmFile) {
+      positionDeleteHint(pointerX, pointerY);
+    }
+  }
+
+  function onDeleteHintEnter() { deleteHintHovered = true; }
+  function onDeleteHintLeave() { deleteHintHovered = false; }
+
+  function cancelDelete() {
+    deleteConfirmFile = null;
+    deleteHintHovered = false;
+  }
+
+  async function confirmDelete() {
+    const file = deleteConfirmFile;
+    if (!file) return;
+    cancelDelete();
     const res = await fetch(comfyUrl + '/browser/files', {
       method: 'DELETE',
       body: JSON.stringify({
@@ -674,14 +712,11 @@
     );
   }
 
-  function updateDeleteHint(file: any, event: PointerEvent) {
-    deleteHoverFile = file;
-    deleteHintX = Math.max(8, Math.min(window.innerWidth - 304, event.clientX + 16));
-    deleteHintY = Math.max(8, Math.min(window.innerHeight - 220, event.clientY + 16));
-  }
-
-  function clearDeleteHint(file: any) {
-    if (deleteHoverFile === file) deleteHoverFile = null;
+  function trackFileHover(file: any, event: PointerEvent) {
+    hoveredFile = file;
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    if (deleteConfirmFile === file && !deleteHintHovered) positionDeleteHint(pointerX, pointerY);
   }
 
   async function onClickDir(dir: any) {
@@ -853,7 +888,7 @@
 <div class="grid w-full gap-2" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));">
   {#each filteredFiles.slice(0, showCursor) as file}
     {#if WHITE_EXTS.includes(file.fileType)}
-      <div data-preview-file={file.name} data-preview-folder={file.folder_path} class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black transition-shadow {selectedFile?.name === file.name && selectedFile?.folder_path === file.folder_path ? 'ring-2 ring-sky-300 shadow-[0_0_24px_6px_rgba(56,189,248,.75)]' : ''} {deleteHoverFile === file ? 'ring-2 ring-red-500 shadow-[0_0_22px_5px_rgba(239,68,68,.8)]' : ''}" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={() => hoveredFile = file} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
+      <div data-preview-file={file.name} data-preview-folder={file.folder_path} class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black transition-shadow {selectedFile?.name === file.name && selectedFile?.folder_path === file.folder_path ? 'ring-2 ring-sky-300 shadow-[0_0_24px_6px_rgba(56,189,248,.75)]' : ''} {deleteConfirmFile === file ? 'ring-2 ring-red-500 shadow-[0_0_26px_6px_rgba(239,68,68,.9)]' : ''}" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={(event) => trackFileHover(file, event)} on:pointermove={(event) => trackFileHover(file, event)} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
         <MediaShow {file} styleClass="w-full min-h-24 flex-auto" {onClickDir} {onSelectFile} />
 
         <button
@@ -864,17 +899,6 @@
           on:click={async () => await onToggleFavorite(file)}
         >
           <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={file.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg>
-        </button>
-        <button
-          class="btn btn-circle btn-ghost btn-xs absolute right-1 top-1 z-10 h-7 min-h-0 w-7 p-0 bg-black/40 text-red-200 shadow backdrop-blur-sm hover:bg-red-950/80 hover:text-red-100"
-          aria-label={`Delete ${file.name}`}
-          title="Delete"
-          on:pointerenter={(event) => updateDeleteHint(file, event)}
-          on:pointermove={(event) => updateDeleteHint(file, event)}
-          on:pointerleave={() => clearDeleteHint(file)}
-          on:click|stopPropagation={() => onDelete(file)}
-        >
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v6m6-6v6" /></svg>
         </button>
         {#if file.type === 'dir'}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
@@ -904,7 +928,7 @@
     {/if}
   {/each}
 </div>
-<DeleteTargetHint file={deleteHoverFile} x={deleteHintX} y={deleteHintY} />
+<DeleteTargetHint file={deleteConfirmFile} x={deleteHintX} y={deleteHintY} onConfirm={confirmDelete} onCancel={cancelDelete} onPointerEnter={onDeleteHintEnter} onPointerLeave={onDeleteHintLeave} />
 
 
 <div class="flex justify-center">

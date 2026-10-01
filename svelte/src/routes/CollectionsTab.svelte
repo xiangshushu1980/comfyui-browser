@@ -17,9 +17,13 @@
   let configGitRepo = '';
   let showCursor = 20;
   let toast: Toast;
-  let deleteHoverFile: any = null;
+  let hoveredFile: any = null;
+  let deleteConfirmFile: any = null;
   let deleteHintX = 0;
   let deleteHintY = 0;
+  let pointerX = 0;
+  let pointerY = 0;
+  let deleteHintHovered = false;
   let folderPath: string;
   let loaded: boolean = false;
   let searchQuery = '';
@@ -67,13 +71,17 @@
       showCursor = onScroll(showCursor, files.length);
     });
     window.addEventListener('keydown', onFolderShortcut);
+    window.addEventListener('keydown', onFileShortcut);
     window.addEventListener('auxclick', onMouseNavigation);
+    window.addEventListener('pointermove', onGlobalPointerMove);
   });
 
   onDestroy(() => {
     if (typeof window !== 'undefined') {
       window.removeEventListener('keydown', onFolderShortcut);
+      window.removeEventListener('keydown', onFileShortcut);
       window.removeEventListener('auxclick', onMouseNavigation);
+      window.removeEventListener('pointermove', onGlobalPointerMove);
     }
   });
 
@@ -174,12 +182,59 @@
     );
   }
 
-  async function onDelete(file: any) {
-    const ret = confirm(`Delete "${file.name}"?`);
-    if (!ret) {
+  function openDeleteConfirm(file: any) {
+    if (!file) return;
+    deleteConfirmFile = file;
+    deleteHintHovered = false;
+    positionDeleteHint(pointerX, pointerY);
+  }
+
+  function positionDeleteHint(x: number, y: number) {
+    deleteHintX = Math.max(8, Math.min(window.innerWidth - 336, x + 16));
+    deleteHintY = Math.max(8, Math.min(window.innerHeight - 340, y + 16));
+  }
+
+  function onGlobalPointerMove(event: PointerEvent) {
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    if (deleteConfirmFile && !deleteHintHovered && hoveredFile === deleteConfirmFile) {
+      positionDeleteHint(pointerX, pointerY);
+    }
+  }
+
+  function trackFileHover(file: any, event: PointerEvent) {
+    hoveredFile = file;
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    if (deleteConfirmFile === file && !deleteHintHovered) positionDeleteHint(pointerX, pointerY);
+  }
+
+  function onDeleteHintEnter() { deleteHintHovered = true; }
+  function onDeleteHintLeave() { deleteHintHovered = false; }
+  function cancelDelete() {
+    deleteConfirmFile = null;
+    deleteHintHovered = false;
+  }
+
+  function onFileShortcut(event: KeyboardEvent) {
+    if (deleteConfirmFile) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelDelete();
+      }
       return;
     }
+    const target = event.target as HTMLElement | null;
+    if (!hoveredFile || target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'd') return;
+    event.preventDefault();
+    openDeleteConfirm(hoveredFile);
+  }
 
+  async function confirmDelete() {
+    const file = deleteConfirmFile;
+    if (!file) return;
+    cancelDelete();
     const res = await fetch(comfyUrl + '/browser/files', {
       method: 'DELETE',
       body: JSON.stringify({
@@ -196,16 +251,6 @@
       tt('toast.deleteSuccess') + file.name,
       tt('toast.deleteFailed'),
     );
-  }
-
-  function updateDeleteHint(file: any, event: PointerEvent) {
-    deleteHoverFile = file;
-    deleteHintX = Math.max(8, Math.min(window.innerWidth - 304, event.clientX + 16));
-    deleteHintY = Math.max(8, Math.min(window.innerHeight - 220, event.clientY + 16));
-  }
-
-  function clearDeleteHint(file: any) {
-    if (deleteHoverFile === file) deleteHoverFile = null;
   }
 
   async function updateFile(file: any, payload: any) {
@@ -356,7 +401,7 @@
   {#each files
     .filter((f) => searchRegex.test(f.name.toLowerCase()) || searchRegex.test(f.notes.toLowerCase()))
     .slice(0, showCursor) as file}
-    <li class="flex h-16 sm:h-28 border-0 space-x-4 p-2 bg-info-content rounded transition-shadow {deleteHoverFile === file ? 'ring-2 ring-red-500 shadow-[0_0_22px_5px_rgba(239,68,68,.75)]' : ''}">
+    <li class="flex h-16 sm:h-28 border-0 space-x-4 p-2 bg-info-content rounded transition-shadow {deleteConfirmFile === file ? 'ring-2 ring-red-500 shadow-[0_0_26px_6px_rgba(239,68,68,.9)]' : ''}" on:pointerenter={(event) => trackFileHover(file, event)} on:pointermove={(event) => trackFileHover(file, event)} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
       <div class="w-16 sm:w-28 shrink-0"><MediaShow {file} styleClass="w-full" {onClickDir} /></div>
       <div class="space-y-2 w-96 relative">
         <input
@@ -377,18 +422,6 @@
               >{$t('common.btn.load')}</button
             >
           {/if}
-          <button
-            class="btn btn-link btn-sm p-0 no-underline text-error ml-52"
-            on:pointerenter={(event) => updateDeleteHint(file, event)}
-            on:pointermove={(event) => updateDeleteHint(file, event)}
-            on:pointerleave={() => clearDeleteHint(file)}
-            on:click={async () => await onDelete(file)}
-          >
-            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M16 2v4h6v2h-2v14H4V8H2V6h6V2h8zm-2 2h-4v2h4V4zm0 4H6v12h12V8h-4zm-5 2h2v8H9v-8zm6 0h-2v8h2v-8z" fill="#f77"/>
-            </svg>
-            {$t('common.btn.delete')}
-        </button>
         </div>
       </div>
 
@@ -404,7 +437,7 @@
     </li>
   {/each}
 </ul>
-<DeleteTargetHint file={deleteHoverFile} x={deleteHintX} y={deleteHintY} />
+<DeleteTargetHint file={deleteConfirmFile} x={deleteHintX} y={deleteHintY} onConfirm={confirmDelete} onCancel={cancelDelete} onPointerEnter={onDeleteHintEnter} onPointerLeave={onDeleteHintLeave} />
 
 <div class="flex justify-center">
   {#if files.length > showCursor}
