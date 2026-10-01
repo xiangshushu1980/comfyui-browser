@@ -5,8 +5,6 @@
   export let y = 0;
   export let onConfirm: () => void;
   export let onCancel: () => void;
-  export let onPointerEnter: () => void;
-  export let onPointerLeave: () => void;
 </script>
 
 {#if file}
@@ -17,8 +15,6 @@
     aria-modal="false"
     aria-label={`Confirm deletion of ${file.name}`}
     aria-live="polite"
-    on:pointerenter={onPointerEnter}
-    on:pointerleave={onPointerLeave}
   >
     {#if file.fileType === 'image'}
       <img class="h-28 w-full bg-black object-contain" src={file.previewUrl || file.url} alt="" />

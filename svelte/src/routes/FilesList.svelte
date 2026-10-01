@@ -45,7 +45,6 @@
   let deleteHintY = 0;
   let pointerX = 0;
   let pointerY = 0;
-  let deleteHintHovered = false;
   let browserRoots: Array<any> = [{ id: 'outputs', name: 'Output', path: '' }];
   let activeRootId = 'outputs';
   let activeRoot: any = browserRoots[0];
@@ -664,7 +663,6 @@
   function openDeleteConfirm(file: any) {
     if (!file) return;
     deleteConfirmFile = file;
-    deleteHintHovered = false;
     positionDeleteHint(pointerX, pointerY);
   }
 
@@ -676,17 +674,10 @@
   function onGlobalPointerMove(event: PointerEvent) {
     pointerX = event.clientX;
     pointerY = event.clientY;
-    if (deleteConfirmFile && !deleteHintHovered && hoveredFile === deleteConfirmFile) {
-      positionDeleteHint(pointerX, pointerY);
-    }
   }
-
-  function onDeleteHintEnter() { deleteHintHovered = true; }
-  function onDeleteHintLeave() { deleteHintHovered = false; }
 
   function cancelDelete() {
     deleteConfirmFile = null;
-    deleteHintHovered = false;
   }
 
   async function confirmDelete() {
@@ -716,7 +707,6 @@
     hoveredFile = file;
     pointerX = event.clientX;
     pointerY = event.clientY;
-    if (deleteConfirmFile === file && !deleteHintHovered) positionDeleteHint(pointerX, pointerY);
   }
 
   async function onClickDir(dir: any) {
@@ -928,7 +918,7 @@
     {/if}
   {/each}
 </div>
-<DeleteTargetHint file={deleteConfirmFile} x={deleteHintX} y={deleteHintY} onConfirm={confirmDelete} onCancel={cancelDelete} onPointerEnter={onDeleteHintEnter} onPointerLeave={onDeleteHintLeave} />
+<DeleteTargetHint file={deleteConfirmFile} x={deleteHintX} y={deleteHintY} onConfirm={confirmDelete} onCancel={cancelDelete} />
 
 
 <div class="flex justify-center">

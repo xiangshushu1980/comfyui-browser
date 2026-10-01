@@ -23,7 +23,6 @@
   let deleteHintY = 0;
   let pointerX = 0;
   let pointerY = 0;
-  let deleteHintHovered = false;
   let folderPath: string;
   let loaded: boolean = false;
   let searchQuery = '';
@@ -185,7 +184,6 @@
   function openDeleteConfirm(file: any) {
     if (!file) return;
     deleteConfirmFile = file;
-    deleteHintHovered = false;
     positionDeleteHint(pointerX, pointerY);
   }
 
@@ -197,23 +195,16 @@
   function onGlobalPointerMove(event: PointerEvent) {
     pointerX = event.clientX;
     pointerY = event.clientY;
-    if (deleteConfirmFile && !deleteHintHovered && hoveredFile === deleteConfirmFile) {
-      positionDeleteHint(pointerX, pointerY);
-    }
   }
 
   function trackFileHover(file: any, event: PointerEvent) {
     hoveredFile = file;
     pointerX = event.clientX;
     pointerY = event.clientY;
-    if (deleteConfirmFile === file && !deleteHintHovered) positionDeleteHint(pointerX, pointerY);
   }
 
-  function onDeleteHintEnter() { deleteHintHovered = true; }
-  function onDeleteHintLeave() { deleteHintHovered = false; }
   function cancelDelete() {
     deleteConfirmFile = null;
-    deleteHintHovered = false;
   }
 
   function onFileShortcut(event: KeyboardEvent) {
@@ -437,7 +428,7 @@
     </li>
   {/each}
 </ul>
-<DeleteTargetHint file={deleteConfirmFile} x={deleteHintX} y={deleteHintY} onConfirm={confirmDelete} onCancel={cancelDelete} onPointerEnter={onDeleteHintEnter} onPointerLeave={onDeleteHintLeave} />
+<DeleteTargetHint file={deleteConfirmFile} x={deleteHintX} y={deleteHintY} onConfirm={confirmDelete} onCancel={cancelDelete} />
 
 <div class="flex justify-center">
   {#if files.length > showCursor}
