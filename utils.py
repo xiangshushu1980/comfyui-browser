@@ -20,7 +20,7 @@ if ':' in args.listen:
 browser_path = path.dirname(__file__)
 config_path = path.join(browser_path, 'config.json')
 
-image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']
 video_extensions = ['.mp4', '.mov', '.avi', '.webm', '.mkv']
 audio_extensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac']
 text_extensions = ['.txt', '.md', '.csv', '.log']
