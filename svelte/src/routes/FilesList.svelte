@@ -6,6 +6,7 @@
   import MediaShow from './MediaShow.svelte';
   import DeleteTargetHint from './DeleteTargetHint.svelte';
   import { renderMarkdown } from '../../../web/markdown.js';
+  import { playBrowserSound } from '../../../web/sounds.js';
   import type Toast from './Toast.svelte';
   import filenameColorConfig from './filename-color-config.json';
 
@@ -357,7 +358,8 @@
     const index = previewable.findIndex((file) => file.name === selectedFile.name && file.folder_path === selectedFile.folder_path);
     const next = previewable[jumpToEdge ? (direction < 0 ? 0 : previewable.length - 1) : index + direction];
     if (next && (next.name !== selectedFile.name || next.folder_path !== selectedFile.folder_path)) {
-      void onSelectFile(next);
+      playBrowserSound('navigate');
+      void onSelectFile(next, false);
       requestAnimationFrame(() => {
         const card = Array.from(document.querySelectorAll<HTMLElement>('[data-preview-file]'))
           .find((item) => item.dataset.previewFile === next.name && item.dataset.previewFolder === next.folder_path);
@@ -505,6 +507,7 @@
 
   function navigateToFolder(path: string) {
     if (path === folderPath) return;
+    playBrowserSound('navigate');
     syncViewMode();
     selectedFile = null;
     postPreview(null);
@@ -528,6 +531,7 @@
 
   function goBack() {
     if (!canGoBack) { toast?.invalid(); return; }
+    playBrowserSound('navigate');
     syncViewMode();
     folderHistoryIndex -= 1;
     folderPath = folderHistory[folderHistoryIndex];
@@ -537,6 +541,7 @@
 
   function goForward() {
     if (!canGoForward) { toast?.invalid(); return; }
+    playBrowserSound('navigate');
     syncViewMode();
     folderHistoryIndex += 1;
     folderPath = folderHistory[folderHistoryIndex];
@@ -582,12 +587,14 @@
     }
   }
 
-  async function onSelectFile(file: any) {
+  async function onSelectFile(file: any, withSound = true) {
     if (selectedFile && selectedFile.name === file.name && selectedFile.folder_path === file.folder_path && selectedFile.root_id === activeRootId) {
       selectedFile = null;
+      if (withSound) playBrowserSound('action');
       postPreview(null);
       return;
     }
+    if (withSound) playBrowserSound('action');
     selectedFile = file;
     if (standaloneBrowser) {
       standalonePreviewText = '';
@@ -632,6 +639,7 @@
     if (res.ok) {
       file.is_favorite = nextValue;
       files = [...files];
+      playBrowserSound('action');
     }
     toast.show(res.ok, nextValue ? 'Added to Saves' : 'Removed from Saves', 'Failed to update Saves');
   }
@@ -658,6 +666,7 @@
     });
 
     refresh();
+    if (res.ok) playBrowserSound('action');
     toast.show(
       res.ok,
       tt('Deleted the file') + file.name,

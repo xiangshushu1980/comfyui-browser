@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { playBrowserSound } from '../../../web/sounds.js';
   export let showToast = false;
   export let toastSuccess = true;
   export let toastText = '';
@@ -17,6 +18,7 @@
   }
 
   export function invalid() {
+    playBrowserSound('invalid');
     if (window.top !== window) {
       window.top?.postMessage({ source: 'comfyui-browser', type: 'invalid-operation' }, '*');
       return;

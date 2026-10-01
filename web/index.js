@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 import { $el, ComfyDialog } from "../../scripts/ui.js";
 import { api } from "../../scripts/api.js";
 import { renderMarkdown } from "./markdown.js";
+import { playBrowserSound } from "./sounds.js";
 
 const browserUrl = "./browser/web/index.html";
 
@@ -331,9 +332,11 @@ class BrowserDialog extends ComfyDialog {
 
   openPreview(file, mode = this.viewMode) {
     const nextMode = mode === "side" ? "side" : "full";
+    if (nextMode === "full") this.applyPreviewSplit();
+    else this.restorePreviewSplit();
     if (!this.previewWidth || this.previewWidthMode !== nextMode) {
       this.previewWidth = nextMode === "full"
-        ? Math.min(Math.max(360, this.element.getBoundingClientRect().width * 0.72), window.innerWidth * 0.88)
+        ? Math.max(280, (window.innerWidth - 24) / 2)
         : Math.min(window.innerWidth * 0.38, 640);
       this.previewWidthMode = nextMode;
     }
@@ -355,6 +358,7 @@ class BrowserDialog extends ComfyDialog {
     this.previewFile = null;
     this.previewToken += 1;
     this.previewDialog.style.display = "none";
+    this.restorePreviewSplit();
     this.previewImage = null;
     document.removeEventListener("pointerdown", this.onPreviewOutsidePointerDown, true);
     if (notifyFrame) this.browserIframe.contentWindow?.postMessage({ source: "comfyui-browser-host", type: "preview-closed" }, "*");
@@ -364,6 +368,7 @@ class BrowserDialog extends ComfyDialog {
     if (!this.previewOpen || !direction) return;
     const button = this.previewNavigationButtons.find((item) => item.dataset.direction === String(direction));
     if (!jumpToEdge && button?.getAttribute("aria-disabled") === "true") {
+      playBrowserSound("invalid");
       this.flashCaptureGlow();
       return;
     }
@@ -469,22 +474,15 @@ class BrowserDialog extends ComfyDialog {
     if (!this.previewOpen || !this.previewDialog || this.previewDetached) return;
     const rect = this.element.getBoundingClientRect();
     if (this.previewMode === "full") {
-      const gap = 12;
-      const minWidth = Math.min(360, window.innerWidth - 16);
+      const gap = 8;
+      const minWidth = Math.min(280, window.innerWidth - 16);
       const rightSpace = window.innerWidth - rect.right - gap - 8;
-      const defaultWidth = Math.min(Math.max(360, rect.width * 0.72), window.innerWidth * 0.88);
-      const desiredWidth = Math.min(this.previewWidth || defaultWidth, window.innerWidth * 0.88);
-      const useRightSide = rightSpace >= minWidth;
-      const width = useRightSide ? Math.min(desiredWidth, rightSpace) : desiredWidth;
-      const height = Math.min(Math.max(300, rect.height * 0.82), window.innerHeight * 0.88);
+      const width = Math.max(minWidth, Math.min(this.previewWidth || rightSpace, rightSpace));
+      const height = Math.min(rect.height, window.innerHeight - 16);
       this.previewDialog.style.width = `${width}px`;
       this.previewDialog.style.height = `${height}px`;
-      const left = useRightSide
-        ? rect.right + gap
-        : Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + (rect.width - width) / 2));
-      const top = Math.max(8, Math.min(window.innerHeight - height - 8, rect.top + (rect.height - height) / 2));
-      this.previewDialog.style.left = `${left}px`;
-      this.previewDialog.style.top = `${top}px`;
+      this.previewDialog.style.left = `${Math.max(8, rect.right + gap)}px`;
+      this.previewDialog.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, rect.top))}px`;
       return;
     }
 
@@ -501,6 +499,46 @@ class BrowserDialog extends ComfyDialog {
     this.previewDialog.style.height = `${Math.min(rect.height, window.innerHeight - 16)}px`;
     this.previewDialog.style.left = `${left}px`;
     this.previewDialog.style.top = `${Math.max(8, rect.top)}px`;
+  }
+
+  applyPreviewSplit() {
+    const enteringSplit = !this.previewSplitLayout;
+    if (enteringSplit) {
+      const element = this.element;
+      const rect = element.getBoundingClientRect();
+      this.previewSplitLayout = {
+        left: element.style.left,
+        top: element.style.top,
+        transform: element.style.transform,
+        width: element.style.width,
+        config: getLocalConfig().modalStyles,
+        rectTop: rect.top,
+      };
+    }
+    const browserWidth = Math.max(280, (window.innerWidth - 24) / 2);
+    Object.assign(this.element.style, {
+      left: "8px",
+      top: `${Math.max(8, Math.min(window.innerHeight - 300, this.previewSplitLayout.rectTop))}px`,
+      transform: "none",
+      width: `${browserWidth}px`,
+    });
+    if (enteringSplit || this.previewWidthMode !== "full") {
+      this.previewWidth = Math.max(280, window.innerWidth - browserWidth - 24);
+    }
+    this.previewWidthMode = "full";
+  }
+
+  restorePreviewSplit() {
+    if (!this.previewSplitLayout) return;
+    const saved = this.previewSplitLayout;
+    Object.assign(this.element.style, {
+      left: saved.left,
+      top: saved.top,
+      transform: saved.transform,
+      width: saved.width,
+    });
+    setLocalConfig("modalStyles", saved.config);
+    this.previewSplitLayout = null;
   }
 
   renderPreview(file) {
@@ -659,6 +697,7 @@ class BrowserDialog extends ComfyDialog {
 
   toggleSidePanel() {
     const e = this.element;
+    this.restorePreviewSplit();
     // Geometry can be customized independently (including a full view at x=0),
     // so it cannot reliably identify the current mode.
     if (this.viewMode === 'side') {
@@ -678,13 +717,6 @@ class BrowserDialog extends ComfyDialog {
     }
     setLocalConfig('viewMode', this.viewMode);
     this.postViewMode();
-    if (this.previewOpen) {
-      this.previewMode = this.viewMode;
-      this.previewDetached = false;
-      this.positionPreviewNavigationButtons();
-      this.positionPreviewDialog();
-    }
-
     setLocalConfig('modalStyles', {
       left: e.style.left,
       top: e.style.top,
@@ -692,6 +724,13 @@ class BrowserDialog extends ComfyDialog {
       height: e.style.height,
       width: e.style.width,
     });
+    if (this.previewOpen) {
+      this.previewMode = this.viewMode;
+      if (this.previewMode === "full") this.applyPreviewSplit();
+      this.previewDetached = false;
+      this.positionPreviewNavigationButtons();
+      this.positionPreviewDialog();
+    }
   }
 
   close() {

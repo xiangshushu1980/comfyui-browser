@@ -5,6 +5,7 @@
   import MediaShow from './MediaShow.svelte';
   import Toast from './Toast.svelte';
   import DeleteTargetHint from './DeleteTargetHint.svelte';
+  import { playBrowserSound } from '../../../web/sounds.js';
 
   export let comfyUrl: string;
 
@@ -89,6 +90,7 @@
 
   function navigateToFolder(path: string) {
     if (path === folderPath) return;
+    playBrowserSound('navigate');
     folderHistory = folderHistory.slice(0, folderHistoryIndex + 1);
     folderHistory.push(path);
     folderHistoryIndex = folderHistory.length - 1;
@@ -98,6 +100,7 @@
 
   function goBack() {
     if (!canGoBack) { toast?.invalid(); return; }
+    playBrowserSound('navigate');
     folderHistoryIndex -= 1;
     folderPath = folderHistory[folderHistoryIndex];
     updateFolderHistoryButtons();
@@ -105,6 +108,7 @@
 
   function goForward() {
     if (!canGoForward) { toast?.invalid(); return; }
+    playBrowserSound('navigate');
     folderHistoryIndex += 1;
     folderPath = folderHistory[folderHistoryIndex];
     updateFolderHistoryButtons();
@@ -186,6 +190,7 @@
     });
 
     refresh();
+    if (res.ok) playBrowserSound('action');
     toast.show(
       res.ok,
       tt('toast.deleteSuccess') + file.name,
