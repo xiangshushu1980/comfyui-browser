@@ -33,6 +33,9 @@
   let endDate = '';
   let datePreset: 'all' | 'today' | '3days' | 'week' = 'all';
   let filteredFiles: Array<any> = [];
+  let sortedFiles: Array<any> = [];
+  let sortBy: 'time' | 'name' | 'size' = 'time';
+  let sortDirection: 'asc' | 'desc' = 'desc';
   let scrollTop = 0;
   let folderHistory = [''];
   let folderHistoryIndex = 0;
@@ -83,6 +86,40 @@
     const date = dateInputValue(new Date(createdAt * 1000));
     return (!startDate || date >= startDate) && (!endDate || date <= endDate);
   });
+  $: sortedFiles = sortFiles(filteredFiles, sortBy, sortDirection);
+
+  function sortFiles(source: Array<any>, key: 'time' | 'name' | 'size', direction: 'asc' | 'desc') {
+    const sign = direction === 'asc' ? 1 : -1;
+    return [...source].sort((a, b) => {
+      const directoryOrder = Number(a.type === 'file') - Number(b.type === 'file');
+      if (directoryOrder) return directoryOrder;
+      let result = 0;
+      if (key === 'name') {
+        result = String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
+      } else {
+        const field = key === 'time' ? 'created_at' : 'bytes';
+        result = (Number(a[field]) || 0) - (Number(b[field]) || 0);
+      }
+      return result === 0 ? String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) : result * sign;
+    });
+  }
+
+  function setSortBy(value: 'time' | 'name' | 'size') {
+    sortBy = value;
+    showCursor = 20;
+    localStorage.setItem('comfyui-browser-sort-by', sortBy);
+  }
+
+  function onSortChange(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    if (value === 'time' || value === 'name' || value === 'size') setSortBy(value);
+  }
+
+  function toggleSortDirection() {
+    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    showCursor = 20;
+    localStorage.setItem('comfyui-browser-sort-direction', sortDirection);
+  }
 
   function wordColor(word: string) {
     const normalized = word.toLowerCase();
@@ -258,6 +295,10 @@
 
   onMount(async () => {
     standaloneBrowser = window.top === window;
+    const savedSortBy = localStorage.getItem('comfyui-browser-sort-by');
+    if (savedSortBy === 'time' || savedSortBy === 'name' || savedSortBy === 'size') sortBy = savedSortBy;
+    const savedSortDirection = localStorage.getItem('comfyui-browser-sort-direction');
+    if (savedSortDirection === 'asc' || savedSortDirection === 'desc') sortDirection = savedSortDirection;
     const savedOrientation = localStorage.getItem('comfyui-browser-breadcrumb-orientation');
     if (savedOrientation === 'horizontal' || savedOrientation === 'vertical') breadcrumbOrientation = savedOrientation;
     //@ts-ignore
@@ -357,7 +398,7 @@
 
   function navigatePreview(direction: number, jumpToEdge = false) {
     if (!selectedFile || !direction) { toast?.invalid(); return; }
-    const previewable = files.filter((file) => file.type === 'file' && file.name.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, showCursor);
+    const previewable = sortedFiles.filter((file) => file.type === 'file').slice(0, showCursor);
     if (previewable.length === 0) { toast?.invalid(); return; }
     const index = previewable.findIndex((file) => file.name === selectedFile.name && file.folder_path === selectedFile.folder_path);
     const next = previewable[jumpToEdge ? (direction < 0 ? 0 : previewable.length - 1) : index + direction];
@@ -374,7 +415,7 @@
   }
 
   function getPreviewPosition(file: any) {
-    const previewable = files.filter((item) => item.type === 'file' && item.name.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, showCursor);
+    const previewable = sortedFiles.filter((item) => item.type === 'file').slice(0, showCursor);
     const index = previewable.findIndex((item) => item.name === file.name);
     return { index: Math.max(0, index) + 1, total: previewable.length };
   }
@@ -767,6 +808,14 @@
     <button class="btn btn-xs px-2 {datePreset === '3days' ? 'btn-active' : 'btn-ghost'}" aria-pressed={datePreset === '3days'} on:click={() => setDatePreset('3days')}>3 日</button>
     <button class="btn btn-xs px-2 {datePreset === 'week' ? 'btn-active' : 'btn-ghost'}" aria-pressed={datePreset === 'week'} on:click={() => setDatePreset('week')}>一周</button>
   </div>
+  <div class="flex shrink-0 items-center gap-0.5" aria-label="File sorting">
+    <select class="select select-bordered select-xs w-[4.5rem] px-1" aria-label="Sort files by" value={sortBy} on:change={onSortChange}>
+      <option value="time">时间</option>
+      <option value="name">名字</option>
+      <option value="size">大小</option>
+    </select>
+    <button class="btn btn-ghost btn-xs btn-square h-7 min-h-0 w-7" aria-label={sortDirection === 'desc' ? 'Descending order' : 'Ascending order'} title={sortDirection === 'desc' ? 'Descending' : 'Ascending'} on:click={toggleSortDirection}>{sortDirection === 'desc' ? '↓' : '↑'}</button>
+  </div>
   <button class="btn btn-ghost btn-sm btn-square shrink-0" aria-label={viewMode === 'side' ? 'Switch to full view' : 'Switch to side view'} title={viewMode === 'side' ? 'Full view' : 'Side view'} on:click={toggleHostViewMode}>
     {#if viewMode === 'side'}
       <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3" /></svg>
@@ -876,7 +925,7 @@
 {/if}
 
 <div class="grid w-full gap-2" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));">
-  {#each filteredFiles.slice(0, showCursor) as file}
+  {#each sortedFiles.slice(0, showCursor) as file}
     {#if WHITE_EXTS.includes(file.fileType)}
       <div data-preview-file={file.name} data-preview-folder={file.folder_path} class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black transition-shadow {selectedFile?.name === file.name && selectedFile?.folder_path === file.folder_path ? 'ring-2 ring-sky-300 shadow-[0_0_24px_6px_rgba(56,189,248,.75)]' : ''} {deleteConfirmFile === file ? 'ring-2 ring-red-500 shadow-[0_0_26px_6px_rgba(239,68,68,.9)]' : ''}" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={(event) => trackFileHover(file, event)} on:pointermove={(event) => trackFileHover(file, event)} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
         <MediaShow {file} styleClass="w-full min-h-24 flex-auto" {onClickDir} {onSelectFile} />
@@ -922,7 +971,7 @@
 
 
 <div class="flex justify-center">
-  {#if filteredFiles.length > showCursor}
+  {#if sortedFiles.length > showCursor}
     <button on:click={() => showCursor += 10} class="btn btn-neutral btn-outline">Load more</button>
   {:else}
     <p class="text-neutral-content">No more content.</p>

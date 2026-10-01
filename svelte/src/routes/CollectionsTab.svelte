@@ -16,6 +16,10 @@
   let config: any = {};
   let configGitRepo = '';
   let showCursor = 20;
+  let filteredFiles: Array<any> = [];
+  let sortedFiles: Array<any> = [];
+  let sortBy: 'time' | 'name' | 'size' = 'time';
+  let sortDirection: 'asc' | 'desc' = 'desc';
   let toast: Toast;
   let hoveredFile: any = null;
   let deleteConfirmFile: any = null;
@@ -46,6 +50,36 @@
     return $t('collectionsTab.' + key);
   }
 
+  $: filteredFiles = files.filter((file) => searchRegex.test(file.name.toLowerCase()) || searchRegex.test((file.notes || '').toLowerCase()));
+  $: sortedFiles = sortFiles(filteredFiles, sortBy, sortDirection);
+
+  function sortFiles(source: Array<any>, key: 'time' | 'name' | 'size', direction: 'asc' | 'desc') {
+    const sign = direction === 'asc' ? 1 : -1;
+    return [...source].sort((a, b) => {
+      const directoryOrder = Number(a.type === 'file') - Number(b.type === 'file');
+      if (directoryOrder) return directoryOrder;
+      const result = key === 'name'
+        ? String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' })
+        : (Number(a[key === 'time' ? 'created_at' : 'bytes']) || 0) - (Number(b[key === 'time' ? 'created_at' : 'bytes']) || 0);
+      return result === 0 ? String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) : result * sign;
+    });
+  }
+
+  function onSortChange(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    if (value === 'time' || value === 'name' || value === 'size') {
+      sortBy = value;
+      showCursor = 20;
+      localStorage.setItem('comfyui-browser-sort-by', value);
+    }
+  }
+
+  function toggleSortDirection() {
+    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    showCursor = 20;
+    localStorage.setItem('comfyui-browser-sort-direction', sortDirection);
+  }
+
   async function refresh() {
     loaded = true;
     files = await fetchFiles(folderType, comfyUrl, folderPath);
@@ -73,6 +107,10 @@
     window.addEventListener('keydown', onFileShortcut);
     window.addEventListener('auxclick', onMouseNavigation);
     window.addEventListener('pointermove', onGlobalPointerMove);
+    const savedSortBy = localStorage.getItem('comfyui-browser-sort-by');
+    if (savedSortBy === 'time' || savedSortBy === 'name' || savedSortBy === 'size') sortBy = savedSortBy;
+    const savedSortDirection = localStorage.getItem('comfyui-browser-sort-direction');
+    if (savedSortDirection === 'asc' || savedSortDirection === 'desc') sortDirection = savedSortDirection;
   });
 
   onDestroy(() => {
@@ -386,12 +424,18 @@
     bind:value={searchQuery}
     class="input input-bordered border-slate-600 w-full h-full rounded-none text-sm basis-1/3"
   />
+  <div class="flex shrink-0 items-center gap-0.5" aria-label="File sorting">
+    <select class="select select-bordered select-xs w-[4.5rem] px-1" aria-label="Sort files by" value={sortBy} on:change={onSortChange}>
+      <option value="time">时间</option>
+      <option value="name">名字</option>
+      <option value="size">大小</option>
+    </select>
+    <button class="btn btn-ghost btn-xs btn-square h-7 min-h-0 w-7" aria-label={sortDirection === 'desc' ? 'Descending order' : 'Ascending order'} title={sortDirection === 'desc' ? 'Descending' : 'Ascending'} on:click={toggleSortDirection}>{sortDirection === 'desc' ? '↓' : '↑'}</button>
+  </div>
 </div>
 
 <ul class="space-y-2">
-  {#each files
-    .filter((f) => searchRegex.test(f.name.toLowerCase()) || searchRegex.test(f.notes.toLowerCase()))
-    .slice(0, showCursor) as file}
+  {#each sortedFiles.slice(0, showCursor) as file}
     <li class="flex h-16 sm:h-28 border-0 space-x-4 p-2 bg-info-content rounded transition-shadow {deleteConfirmFile === file ? 'ring-2 ring-red-500 shadow-[0_0_26px_6px_rgba(239,68,68,.9)]' : ''}" on:pointerenter={(event) => trackFileHover(file, event)} on:pointermove={(event) => trackFileHover(file, event)} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
       <div class="w-16 sm:w-28 shrink-0"><MediaShow {file} styleClass="w-full" {onClickDir} /></div>
       <div class="space-y-2 w-96 relative">
@@ -431,7 +475,7 @@
 <DeleteTargetHint file={deleteConfirmFile} x={deleteHintX} y={deleteHintY} onConfirm={confirmDelete} onCancel={cancelDelete} />
 
 <div class="flex justify-center">
-  {#if files.length > showCursor}
+  {#if sortedFiles.length > showCursor}
     <button on:click={() => showCursor += 10} class="btn btn-neutral btn-outline">Load more</button>
   {:else}
     <p class="text-neutral-content">No more content.</p>
