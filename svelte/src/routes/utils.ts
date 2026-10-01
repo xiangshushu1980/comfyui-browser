@@ -3,7 +3,7 @@ import type Toast from './Toast.svelte';
 
 export type FOLDER_TYPES = 'outputs' | 'collections' | 'sources';
 
-export const IMAGE_EXTS = ['png', 'webp', 'jpeg', 'jpg', 'gif'];
+export const IMAGE_EXTS = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg'];
 export const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'avi', 'mkv'];
 export const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
 export const TEXT_EXTS = ['txt', 'md', 'csv', 'log', 'html', 'json'];
