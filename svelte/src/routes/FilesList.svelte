@@ -66,6 +66,11 @@
   let pickerLoading = false;
   let standaloneBrowser = false;
   let standalonePreviewText = '';
+  // Owner: Sean — image interaction in the standalone preview.
+  let standalonePreviewZoom = 1;
+  let standalonePreviewPanX = 0;
+  let standalonePreviewPanY = 0;
+  let standalonePanOrigin: { x: number; y: number; panX: number; panY: number } | null = null;
   $: standalonePreviewHtml = selectedFile?.fileType === 'markdown'
     ? renderMarkdown(standalonePreviewText, selectedFile.url)
     : '';
@@ -639,6 +644,44 @@
     }
   }
 
+  function resetStandalonePreview() {
+    standalonePreviewZoom = 1;
+    standalonePreviewPanX = 0;
+    standalonePreviewPanY = 0;
+    stopStandaloneImagePan();
+  }
+
+  function zoomStandalonePreview(event: WheelEvent) {
+    if (selectedFile?.fileType !== 'image') return;
+    event.preventDefault();
+    standalonePreviewZoom = Math.max(0.2, Math.min(6,
+      standalonePreviewZoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15)));
+  }
+
+  function resetStandaloneImagePreview(event: MouseEvent) {
+    if (selectedFile?.fileType === 'image' && !(event.target as Element).closest('button')) resetStandalonePreview();
+  }
+
+  function startStandaloneImagePan(event: PointerEvent) {
+    if (selectedFile?.fileType !== 'image' || event.button !== 0 || (event.target as Element).closest('button')) return;
+    event.preventDefault();
+    standalonePanOrigin = {
+      x: event.clientX, y: event.clientY,
+      panX: standalonePreviewPanX, panY: standalonePreviewPanY,
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+
+  function moveStandaloneImagePan(event: PointerEvent) {
+    if (!standalonePanOrigin) return;
+    standalonePreviewPanX = standalonePanOrigin.panX + event.clientX - standalonePanOrigin.x;
+    standalonePreviewPanY = standalonePanOrigin.panY + event.clientY - standalonePanOrigin.y;
+  }
+
+  function stopStandaloneImagePan() {
+    standalonePanOrigin = null;
+  }
+
   async function onSelectFile(file: any, withSound = true) {
     if (selectedFile && selectedFile.name === file.name && selectedFile.folder_path === file.folder_path && selectedFile.root_id === activeRootId) {
       selectedFile = null;
@@ -649,6 +692,7 @@
     if (withSound) playBrowserSound('action');
     selectedFile = file;
     if (standaloneBrowser) {
+      resetStandalonePreview();
       standalonePreviewText = '';
       if (file.fileType === 'text' || file.fileType === 'html' || file.fileType === 'json' || file.fileType === 'markdown') {
         try {
@@ -978,6 +1022,8 @@
   {/if}
 </div>
 
+<svelte:window on:blur={stopStandaloneImagePan} />
+
 {#if standaloneBrowser && selectedFile}
   <button class="fixed inset-0 z-40 bg-black/20 cursor-default" aria-label="Close preview" title="Click outside to close" on:click={() => selectedFile = null}></button>
   <section class="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[88vw] h-[86vh] rounded-lg border border-base-content/30 bg-base-200/90 shadow-2xl backdrop-blur-sm p-3 flex flex-col" role="dialog" aria-modal="true" aria-label={selectedFile.name}>
@@ -986,9 +1032,27 @@
       <span class="text-xs opacity-70">{selectedFile.formattedSize}</span>
       <button class="btn btn-ghost btn-sm" aria-label="Close preview" on:click={() => selectedFile = null}>✕</button>
     </div>
-    <div class="relative min-h-0 flex-1 flex items-center justify-center overflow-hidden">
+    <div
+      class="relative min-h-0 flex-1 flex items-center justify-center overflow-hidden"
+      role="presentation"
+      style:touch-action={selectedFile.fileType === 'image' ? 'none' : 'auto'}
+      on:wheel|nonpassive={zoomStandalonePreview}
+      on:dblclick={resetStandaloneImagePreview}
+      on:pointerdown={startStandaloneImagePan}
+      on:pointermove={moveStandaloneImagePan}
+      on:pointerup={stopStandaloneImagePan}
+      on:pointercancel={stopStandaloneImagePan}
+      on:lostpointercapture={stopStandaloneImagePan}
+    >
       {#if selectedFile.fileType === 'image'}
-        <img class="max-w-full max-h-full object-contain" src={selectedFile.previewUrl} alt={selectedFile.name} />
+        <img
+          class="max-w-full max-h-full object-contain select-none"
+          src={selectedFile.previewUrl}
+          alt={selectedFile.name}
+          draggable="false"
+          style:transform={`translate(${standalonePreviewPanX}px, ${standalonePreviewPanY}px) scale(${standalonePreviewZoom})`}
+          style:cursor={standalonePanOrigin ? 'grabbing' : 'grab'}
+        />
       {:else if selectedFile.fileType === 'video'}
         <video class="max-w-full max-h-full" src={selectedFile.previewUrl} controls playsinline><track kind="captions" /></video>
       {:else if selectedFile.fileType === 'audio'}
