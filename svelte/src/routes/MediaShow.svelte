@@ -1,9 +1,43 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
+  import { renderMarkdown } from '../../../web/markdown.js';
   export let file: any;
   export let styleClass: string;
   export let onClickDir: Function;
   export let onSelectFile: Function | undefined = undefined;
   let aspectRatio = 1.53;
+  let textContent = '';
+  let textLoading = false;
+  let textLoadError = '';
+  let textRequest: AbortController | null = null;
+  $: if (['text', 'markdown', 'json'].includes(file.fileType) && file.url) {
+    void loadTextContent(file.url);
+  }
+  $: renderedTextContent = file.fileType === 'markdown' ? renderMarkdown(textContent, file.url) : '';
+
+  async function loadTextContent(url: string) {
+    textRequest?.abort();
+    const request = new AbortController();
+    textRequest = request;
+    textContent = '';
+    textLoadError = '';
+    textLoading = true;
+    try {
+      const response = await fetch(url, { signal: request.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const content = await response.text();
+      if (textRequest !== request) return;
+      // Keep cards responsive when a folder contains large logs or documents.
+      textContent = content.length > 12000 ? `${content.slice(0, 12000)}\n\n…` : content;
+    } catch (error) {
+      if (request.signal.aborted || textRequest !== request) return;
+      textLoadError = `Could not load: ${error}`;
+    } finally {
+      if (textRequest === request) textLoading = false;
+    }
+  }
+
+  onDestroy(() => textRequest?.abort());
 
   function updateAspectRatio(event: Event) {
     const media = event.currentTarget as HTMLImageElement | HTMLVideoElement;
@@ -52,11 +86,17 @@
       aria-label={`Preview ${file.name}`}
       on:click={selectFile}
     >
-      {#if file.fileType === 'json' || file.fileType === 'markdown'}
-        <div class="flex h-full w-full items-center justify-center">
-          <span class="flex h-14 w-14 items-center justify-center rounded-xl bg-black/25 text-accent">
-            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7.5A2.5 2.5 0 0 0 5 7.5v1A2.5 2.5 0 0 1 2.5 11 2.5 2.5 0 0 1 5 13.5v1A2.5 2.5 0 0 0 7.5 17H9m6-12h1.5A2.5 2.5 0 0 1 19 7.5v1a2.5 2.5 0 0 0 2.5 2.5A2.5 2.5 0 0 0 19 13.5v1a2.5 2.5 0 0 1-2.5 2.5H15"/></svg>
-          </span>
+      {#if ['text', 'markdown', 'json'].includes(file.fileType)}
+        <div class="absolute inset-0 overflow-auto bg-slate-950 px-3 py-2 text-left text-[11px] leading-[1.45] text-slate-100">
+          {#if textLoading}
+            <span class="text-slate-400">Loading content…</span>
+          {:else if textLoadError}
+            <span class="text-red-300">{textLoadError}</span>
+          {:else if file.fileType === 'markdown'}
+            <div class="comfy-browser-markdown text-[11px] leading-[1.45]">{@html renderedTextContent}</div>
+          {:else}
+            <pre class="m-0 whitespace-pre-wrap break-words font-mono">{textContent}</pre>
+          {/if}
         </div>
       {/if}
       {#if file.fileType === 'html'}
@@ -70,13 +110,6 @@
         <div class="flex h-full w-full items-center justify-center">
           <span class="flex h-14 w-14 items-center justify-center rounded-xl bg-black/25 text-accent">
             <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13M9 18c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zm12-2c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zM9 9l12-2"/></svg>
-          </span>
-        </div>
-      {/if}
-      {#if file.fileType === 'text'}
-        <div class="flex h-full w-full items-center justify-center">
-          <span class="flex h-14 w-14 items-center justify-center rounded-xl bg-black/25 text-accent">
-            <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.75h7L18.25 8v12.25H7A2.25 2.25 0 0 1 4.75 18V6A2.25 2.25 0 0 1 7 3.75zM14 3.75V8h4.25M8.5 12h7m-7 3h7"/></svg>
           </span>
         </div>
       {/if}

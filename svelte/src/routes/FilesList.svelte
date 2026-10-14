@@ -983,19 +983,21 @@
         >
           <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={file.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg>
         </button>
-        {#if file.type === 'dir'}
+        {#if ['text', 'markdown', 'json'].includes(file.fileType)}
+          <div class="pointer-events-none absolute left-2 top-1 z-[1] w-fit max-w-[calc(100%_-_1rem)] truncate rounded bg-black/70 px-2 py-1 text-left text-xs font-semibold text-white" title={file.name}>{file.name}</div>
+        {:else if file.type === 'dir'}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-1 font-bold leading-[1.3] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-1 font-bold leading-[1.3] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, false) as column, index}
-                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block w-fit max-w-full break-words bg-black/70 px-[0.12em] {index === 1 ? 'ml-auto' : ''}" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
             </div>
           </div>
         {:else}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden opacity-80">
-            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-1 font-bold leading-[1.3] [text-shadow:0_1px_3px_rgba(0,0,0,.95)] text-[28px]" title={file.name}>
+            <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-1 font-bold leading-[1.3] text-[28px]" title={file.name}>
               {#each filenameColumns(file.name, true) as column, index}
-                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block break-words" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
+                <p class="min-w-0 overflow-hidden {index === 0 ? 'text-left' : 'text-right'}">{#each column as part}<span class="block w-fit max-w-full break-words bg-black/70 px-[0.12em] {index === 1 ? 'ml-auto' : ''}" style={`color:${part.color}`}>{part.text}</span>{/each}</p>
               {/each}
             </div>
           </div>
