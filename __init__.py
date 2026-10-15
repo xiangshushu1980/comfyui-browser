@@ -18,6 +18,7 @@ browser_app.add_routes([
     web.get("/roots", config.api_get_browser_roots),
     web.get("/roots/directories", config.api_browse_browser_directories),
     web.post("/roots", config.api_add_browser_root),
+    web.put("/roots", config.api_reorder_browser_roots),
     web.delete("/roots/{root_id}", config.api_delete_browser_root),
 
     web.post("/collections", collections.api_add_to_collections),

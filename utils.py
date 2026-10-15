@@ -1,7 +1,7 @@
 import functools
 import hashlib
 import json
-from os import path, scandir, makedirs, walk
+from os import path, scandir, makedirs, walk, stat
 from os.path import expanduser, realpath
 import subprocess
 import time
@@ -268,6 +268,47 @@ def get_target_folder_files(folder_path: str, folder_type: str = 'outputs', root
             })
 
     return files
+
+def search_browser_directories(query: str, root_id: str | None = None, limit: int = 200):
+    root_path = get_browser_root_path(root_id, 'outputs')
+    if not root_path or not path.isdir(root_path):
+        return []
+    needle = query.strip().replace('\\', '/').strip('/').casefold()
+    if not needle:
+        return []
+
+    matches = []
+    for current_path, directory_names, _ in walk(root_path, followlinks=False):
+        directory_names[:] = [name for name in directory_names if not name.startswith('.')]
+        matched_directory_names = []
+        for name in directory_names:
+            full_path = path.join(current_path, name)
+            relative_path = path.relpath(full_path, root_path).replace('\\', '/')
+            if needle not in relative_path.casefold():
+                continue
+            try:
+                folder_stat = stat(full_path)
+            except OSError:
+                continue
+            parent_path = path.relpath(current_path, root_path)
+            folder_path = '' if parent_path == '.' else parent_path.replace('\\', '/')
+            matches.append({
+                "type": "dir",
+                "name": name,
+                "bytes": 0,
+                "created_at": folder_stat.st_ctime,
+                "folder_path": folder_path,
+                "notes": "",
+                "children_count": 1,
+                "preview_items": [],
+                "root_id": root_id or 'outputs',
+            })
+            matched_directory_names.append(name)
+            if len(matches) >= limit:
+                return matches
+        if matched_directory_names:
+            directory_names[:] = [name for name in directory_names if name not in matched_directory_names]
+    return matches
 
 def favorites_manifest_path():
     return path.join(collections_path(), '.browser-favorites.json')

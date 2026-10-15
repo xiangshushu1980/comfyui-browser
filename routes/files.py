@@ -6,13 +6,19 @@ import os
 import shutil
 import mimetypes
 
-from ..utils import get_target_folder_files, get_browser_root_path, get_info_filename
+from ..utils import get_target_folder_files, get_browser_root_path, get_info_filename, search_browser_directories
 
 # folder_path, folder_type
 async def api_get_files(request):
     folder_path = request.query.get('folder_path', '')
     folder_type = request.query.get('folder_type', 'outputs')
     root_id = request.query.get('root_id', 'outputs')
+    path_search = request.query.get('path_search', '').strip()
+    if path_search:
+        if folder_type != 'outputs' or folder_path:
+            return web.json_response({'files': []})
+        files = await asyncio.to_thread(search_browser_directories, path_search, root_id)
+        return web.json_response({'files': files})
     files = await asyncio.to_thread(
         get_target_folder_files,
         folder_path,

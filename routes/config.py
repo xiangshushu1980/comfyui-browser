@@ -54,6 +54,20 @@ async def api_add_browser_root(request):
     added = next(root for root in get_browser_roots() if root["path"] == root_path)
     return web.json_response({"root": added}, status=201)
 
+async def api_reorder_browser_roots(request):
+    data = await request.json()
+    root_ids = data.get("root_ids")
+    if not isinstance(root_ids, list) or not all(isinstance(root_id, str) for root_id in root_ids):
+        return web.json_response({"message": "A list of directory IDs is required."}, status=400)
+
+    roots = [root for root in get_browser_roots() if not root["default"]]
+    roots_by_id = {root["id"]: root for root in roots}
+    if len(root_ids) != len(roots) or set(root_ids) != set(roots_by_id):
+        return web.json_response({"message": "The directory list has changed. Refresh and try again."}, status=409)
+
+    save_browser_roots([roots_by_id[root_id] for root_id in root_ids])
+    return web.json_response({"roots": get_browser_roots()})
+
 async def api_delete_browser_root(request):
     root_id = request.match_info.get("root_id")
     roots = [root for root in get_browser_roots() if not root["default"]]

@@ -20,6 +20,9 @@
 
   let comfyApp: any;
   let files: Array<any> = [];
+  let pathSearchResults: Array<any> | null = null;
+  let pathSearchTimer: ReturnType<typeof setTimeout> | null = null;
+  let pathSearchRequestId = 0;
   let filesRequestId = 0;
   let loaded: boolean = true;
   let showCursor = 20;
@@ -48,7 +51,8 @@
   let deleteHintY = 0;
   let pointerX = 0;
   let pointerY = 0;
-  let browserRoots: Array<any> = [{ id: 'outputs', name: 'Output', path: '' }];
+  let browserRoots: Array<any> = [{ id: 'outputs', name: 'Output', path: '', default: true }];
+  let draggedRootId: string | null = null;
   let activeRootId = 'outputs';
   let activeRoot: any = browserRoots[0];
   let currentPathSegments: string[] = [];
@@ -77,14 +81,14 @@
   $: standalonePreviewPosition = selectedFile ? getPreviewPosition(selectedFile) : { index: 0, total: 0 };
 
   $: searchCandidates = candidateQuery.trim()
-    ? files.filter((file) => file.name.toLowerCase().includes(candidateQuery.trim().toLowerCase())).slice(0, 8)
+    ? (pathSearchResults ?? files).filter((file) => matchesSearch(file, candidateQuery)).slice(0, 8)
     : [];
   $: activeRoot = folderType === 'outputs'
     ? (browserRoots.find((root) => root.id === activeRootId) || browserRoots[0])
     : null;
   $: currentPathSegments = (folderPath || '').split('/').filter(Boolean);
-  $: filteredFiles = files.filter((file) => {
-    if (!file.name.toLowerCase().includes(searchQuery.trim().toLowerCase())) return false;
+  $: filteredFiles = (pathSearchResults ?? files).filter((file) => {
+    if (!matchesSearch(file, searchQuery)) return false;
     if (!startDate && !endDate) return true;
     const createdAt = Number(file.created_at);
     if (!Number.isFinite(createdAt)) return false;
@@ -92,6 +96,17 @@
     return (!startDate || date >= startDate) && (!endDate || date <= endDate);
   });
   $: sortedFiles = sortFiles(filteredFiles, sortBy, sortDirection);
+
+  function matchesSearch(file: any, query: string) {
+    const needle = query.trim().replace(/\\/g, '/').toLocaleLowerCase();
+    if (!needle) return true;
+    const relativePath = [file.folder_path, file.name]
+      .filter(Boolean)
+      .join('/')
+      .replace(/\\/g, '/')
+      .toLocaleLowerCase();
+    return relativePath.includes(needle);
+  }
 
   function sortFiles(source: Array<any>, key: 'time' | 'name' | 'size', direction: 'asc' | 'desc') {
     const sign = direction === 'asc' ? 1 : -1;
@@ -202,10 +217,26 @@
   }
 
   function onSearchInput() {
+    const requestId = ++pathSearchRequestId;
     candidateQuery = searchQuery;
     selectedSearchCandidate = '';
     showSearchCandidates = true;
     showCursor = 20;
+    if (pathSearchTimer) clearTimeout(pathSearchTimer);
+    const query = searchQuery.trim();
+    if (!query.includes('/') && !query.includes('\\')) {
+      pathSearchResults = null;
+      return;
+    }
+    if (folderType !== 'outputs' || folderPath) return;
+    pathSearchTimer = setTimeout(async () => {
+      try {
+        const results = await fetchFiles(folderType, comfyUrl, '', activeRootId, query);
+        if (requestId === pathSearchRequestId && searchQuery.trim() === query) pathSearchResults = results;
+      } catch {
+        if (requestId === pathSearchRequestId) pathSearchResults = [];
+      }
+    }, 250);
   }
 
   function selectSearchCandidate(name: string) {
@@ -240,6 +271,7 @@
     } else if (event.key === 'Escape') {
       event.preventDefault();
       searchQuery = '';
+      pathSearchResults = null;
       candidateQuery = '';
       selectedSearchCandidate = '';
       showSearchCandidates = false;
@@ -449,6 +481,11 @@
   async function selectBrowserRoot(rootId: string) {
     syncViewMode();
     activeRootId = rootId;
+    searchQuery = '';
+    candidateQuery = '';
+    pathSearchResults = null;
+    pathSearchResults = null;
+    pathSearchRequestId += 1;
     localStorage.setItem(rootStorageKey(), activeRootId);
     folderPath = '';
     localStorage.setItem(folderStorageKey(), folderPath);
@@ -544,6 +581,54 @@
     if (activeRootId === rootId) await selectBrowserRoot('outputs');
   }
 
+  function onRootDragStart(event: DragEvent, rootId: string) {
+    if (rootId === 'outputs') {
+      event.preventDefault();
+      return;
+    }
+    draggedRootId = rootId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', rootId);
+    }
+  }
+
+  function onRootDragOver(event: DragEvent, targetRootId: string) {
+    if (!draggedRootId || targetRootId === 'outputs' || targetRootId === draggedRootId) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  async function onRootDrop(event: DragEvent, targetRootId: string) {
+    event.preventDefault();
+    const sourceRootId = draggedRootId || event.dataTransfer?.getData('text/plain');
+    draggedRootId = null;
+    if (!sourceRootId || targetRootId === 'outputs' || sourceRootId === targetRootId) return;
+
+    const customRoots = browserRoots.filter((root) => !root.default);
+    const fromIndex = customRoots.findIndex((root) => root.id === sourceRootId);
+    const toIndex = customRoots.findIndex((root) => root.id === targetRootId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    customRoots.splice(toIndex, 0, ...customRoots.splice(fromIndex, 1));
+    const reorderedRoots = [browserRoots.find((root) => root.default), ...customRoots].filter(Boolean);
+    const previousRoots = browserRoots;
+    browserRoots = reorderedRoots;
+    try {
+      const response = await fetch(comfyUrl + '/browser/roots', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root_ids: customRoots.map((root) => root.id) }),
+      });
+      if (!response.ok) throw new Error('Could not save directory order');
+      const result = await response.json();
+      browserRoots = result.roots || reorderedRoots;
+      rootError = '';
+    } catch (error) {
+      browserRoots = previousRoots;
+      rootError = error instanceof Error ? error.message : 'Could not save directory order';
+    }
+  }
+
   function updateFolderHistoryButtons() {
     canGoBack = folderHistoryIndex > 0;
     canGoForward = folderHistoryIndex < folderHistory.length - 1;
@@ -565,6 +650,10 @@
     folderHistory.push(path);
     folderHistoryIndex = folderHistory.length - 1;
     folderPath = path;
+    searchQuery = '';
+    candidateQuery = '';
+    pathSearchResults = null;
+    pathSearchRequestId += 1;
     if (folderType === 'outputs') localStorage.setItem(folderStorageKey(), folderPath);
     updateFolderHistoryButtons();
   }
@@ -795,6 +884,9 @@
   }
 
   async function onClickDir(dir: any) {
+    searchQuery = '';
+    candidateQuery = '';
+    pathSearchResults = null;
     navigateToFolder(dir.path);
   }
 
@@ -963,7 +1055,17 @@
 {#if folderType === 'outputs' && !folderPath}
   <nav class="mx-3 my-2 flex flex-wrap gap-2" aria-label="Browser directories">
     {#each browserRoots as root}
-      <div class="flex max-w-full items-center rounded-lg border {root.id === activeRootId ? 'border-primary bg-primary/10' : 'border-base-content/20 bg-base-200'}">
+      <div
+        class="flex max-w-full items-center rounded-lg border {root.id === activeRootId ? 'border-primary bg-primary/10' : 'border-base-content/20 bg-base-200'} {draggedRootId === root.id ? 'opacity-50' : ''}"
+        role="group"
+        aria-label={`Directory ${root.name}`}
+        draggable={!root.default}
+        on:dragstart={(event) => onRootDragStart(event, root.id)}
+        on:dragover={(event) => onRootDragOver(event, root.id)}
+        on:drop={(event) => onRootDrop(event, root.id)}
+        on:dragend={() => { draggedRootId = null; }}
+      >
+        {#if !root.default}<span class="cursor-grab select-none px-1 opacity-40" aria-hidden="true" title="Drag to reorder">⠿</span>{/if}
         <button class="flex min-w-0 flex-col px-3 py-2 text-left" title={root.path} on:click={() => selectBrowserRoot(root.id)}>
           <span class="font-semibold">{root.name}</span>
           <span class="max-w-[min(70vw,32rem)] truncate text-xs opacity-65">{root.path}</span>

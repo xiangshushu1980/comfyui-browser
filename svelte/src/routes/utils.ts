@@ -119,8 +119,10 @@ export async function fetchFiles(
   comfyUrl: string,
   folderPath?: string,
   rootId = 'outputs',
+  pathSearch = '',
 ) {
   const params = new URLSearchParams({ folder_type: folderType, root_id: rootId, folder_path: folderPath || '' });
+  if (pathSearch) params.set('path_search', pathSearch);
   const url = `${comfyUrl}/browser/files?${params.toString()}`;
 
   const res = await fetch(url);
