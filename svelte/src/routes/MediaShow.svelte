@@ -46,7 +46,13 @@
     if (width > 0 && height > 0) aspectRatio = Math.max(0.5, Math.min(2.4, width / height));
   }
 
-  function selectFile() {
+  function selectFile(event: MouseEvent) {
+    if (file.fileType === 'html' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.open(file.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (onSelectFile) onSelectFile(file);
     else window.open(file.url, '_blank');
   }
@@ -80,9 +86,10 @@
   {:else}
     <button
       type="button"
+      data-file-preview-target
       class="absolute inset-0 flex items-center justify-center overflow-hidden"
       style="height: inherit; width: inherit;"
-      title={`Preview ${file.name}`}
+      title={file.fileType === 'html' ? `Preview ${file.name}; Ctrl/Cmd+click or double-click to open as a webpage` : `Preview ${file.name}`}
       aria-label={`Preview ${file.name}`}
       on:click={selectFile}
     >

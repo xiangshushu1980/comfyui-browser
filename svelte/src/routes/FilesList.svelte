@@ -805,6 +805,14 @@
     else void onSelectFile(file);
   }
 
+  function onDoubleClickCard(file: any, event: MouseEvent) {
+    const target = event.target as HTMLElement | null;
+    if (file.fileType !== 'html' || !target?.closest('[data-file-preview-target]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    window.open(file.url, '_blank', 'noopener,noreferrer');
+  }
+
   function onCardKeydown(file: any, event: KeyboardEvent) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
@@ -971,7 +979,7 @@
 <div class="grid w-full gap-2" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));">
   {#each sortedFiles.slice(0, showCursor) as file}
     {#if WHITE_EXTS.includes(file.fileType)}
-      <div data-preview-file={file.name} data-preview-folder={file.folder_path} class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black transition-shadow {selectedFile?.name === file.name && selectedFile?.folder_path === file.folder_path ? 'ring-2 ring-sky-300 shadow-[0_0_24px_6px_rgba(56,189,248,.75)]' : ''} {deleteConfirmFile === file ? 'ring-2 ring-red-500 shadow-[0_0_26px_6px_rgba(239,68,68,.9)]' : ''}" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={(event) => trackFileHover(file, event)} on:pointermove={(event) => trackFileHover(file, event)} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
+    <div data-preview-file={file.name} data-preview-folder={file.folder_path} class="group relative flex h-full flex-col overflow-hidden rounded-lg bg-black transition-shadow {selectedFile?.name === file.name && selectedFile?.folder_path === file.folder_path ? 'ring-2 ring-sky-300 shadow-[0_0_24px_6px_rgba(56,189,248,.75)]' : ''} {deleteConfirmFile === file ? 'ring-2 ring-red-500 shadow-[0_0_26px_6px_rgba(239,68,68,.9)]' : ''}" role="button" tabindex="0" on:click={(event) => onClickCard(file, event)} on:dblclick={(event) => onDoubleClickCard(file, event)} on:keydown={(event) => onCardKeydown(file, event)} on:pointerenter={(event) => trackFileHover(file, event)} on:pointermove={(event) => trackFileHover(file, event)} on:pointerleave={() => { if (hoveredFile === file) hoveredFile = null; }}>
         <MediaShow {file} styleClass="w-full min-h-24 flex-auto" {onClickDir} {onSelectFile} />
 
         <button
