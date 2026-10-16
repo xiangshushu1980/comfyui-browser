@@ -269,17 +269,28 @@ def get_target_folder_files(folder_path: str, folder_type: str = 'outputs', root
 
     return files
 
-def search_browser_directories(query: str, root_id: str | None = None, limit: int = 200):
+def search_browser_directories(
+    query: str,
+    root_id: str | None = None,
+    base_folder_path: str = '',
+    limit: int = 200,
+):
     root_path = get_browser_root_path(root_id, 'outputs')
     if not root_path or not path.isdir(root_path):
+        return []
+    root_path = realpath(root_path)
+    search_root = realpath(path.join(root_path, base_folder_path))
+    if path.commonpath([root_path, search_root]) != root_path:
+        return []
+    if not path.isdir(search_root):
         return []
     needle = query.strip().replace('\\', '/').strip('/').casefold()
     if not needle:
         return []
 
     matches = []
-    for current_path, directory_names, _ in walk(root_path, followlinks=False):
-        current_relative_path = path.relpath(current_path, root_path).replace('\\', '/')
+    for current_path, directory_names, _ in walk(search_root, followlinks=False):
+        current_relative_path = path.relpath(current_path, search_root).replace('\\', '/')
         # Owner: Sean — descend into hidden folders only when the search names that path.
         directory_names[:] = [
             name for name in directory_names

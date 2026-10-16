@@ -15,9 +15,9 @@ async def api_get_files(request):
     root_id = request.query.get('root_id', 'outputs')
     path_search = request.query.get('path_search', '').strip()
     if path_search:
-        if folder_type != 'outputs' or folder_path:
+        if folder_type != 'outputs':
             return web.json_response({'files': []})
-        files = await asyncio.to_thread(search_browser_directories, path_search, root_id)
+        files = await asyncio.to_thread(search_browser_directories, path_search, root_id, folder_path)
         return web.json_response({'files': files})
     files = await asyncio.to_thread(
         get_target_folder_files,

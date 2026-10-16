@@ -228,10 +228,10 @@
       pathSearchResults = null;
       return;
     }
-    if (folderType !== 'outputs' || folderPath) return;
+    if (folderType !== 'outputs') return;
     pathSearchTimer = setTimeout(async () => {
       try {
-        const results = await fetchFiles(folderType, comfyUrl, '', activeRootId, query);
+        const results = await fetchFiles(folderType, comfyUrl, folderPath, activeRootId, query);
         if (requestId === pathSearchRequestId && searchQuery.trim() === query) pathSearchResults = results;
       } catch {
         if (requestId === pathSearchRequestId) pathSearchResults = [];
