@@ -224,7 +224,7 @@
     showCursor = 20;
     if (pathSearchTimer) clearTimeout(pathSearchTimer);
     const query = searchQuery.trim();
-    if (!query.includes('/') && !query.includes('\\')) {
+    if (!query.includes('/') && !query.includes('\\') && !query.startsWith('.')) {
       pathSearchResults = null;
       return;
     }

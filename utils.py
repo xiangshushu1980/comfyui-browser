@@ -279,7 +279,16 @@ def search_browser_directories(query: str, root_id: str | None = None, limit: in
 
     matches = []
     for current_path, directory_names, _ in walk(root_path, followlinks=False):
-        directory_names[:] = [name for name in directory_names if not name.startswith('.')]
+        current_relative_path = path.relpath(current_path, root_path).replace('\\', '/')
+        # Owner: Sean — descend into hidden folders only when the search names that path.
+        directory_names[:] = [
+            name for name in directory_names
+            if not name.startswith('.')
+            or needle.startswith(
+                (name if current_relative_path == '.' else f'{current_relative_path}/{name}').casefold() + '/'
+            )
+            or needle == (name if current_relative_path == '.' else f'{current_relative_path}/{name}').casefold()
+        ]
         matched_directory_names = []
         for name in directory_names:
             full_path = path.join(current_path, name)
