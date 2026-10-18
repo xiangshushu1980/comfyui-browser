@@ -249,16 +249,19 @@
     showCursor = 20;
     if (pathSearchTimer) clearTimeout(pathSearchTimer);
     const query = searchQuery.trim();
-    if (!query.includes('/') && !query.includes('\\') && !query.startsWith('.')) {
+    if (!query) {
       pathSearchResults = null;
       return;
     }
-    if (folderType !== 'outputs') return;
+    if (folderType !== 'outputs') {
+      pathSearchResults = null;
+      return;
+    }
     pathSearchTimer = setTimeout(async () => {
       try {
-        // Path queries are root-relative; searching only the open directory misses
-        // matching files in sibling branches such as .production-runs.
-        const results = await fetchFiles(folderType, comfyUrl, '', activeRootId, query, showHiddenDirectories);
+        // Search every query from the selected root, including hidden production
+        // folders, so a filename alone can find files outside the open directory.
+        const results = await fetchFiles(folderType, comfyUrl, '', activeRootId, query, true);
         if (requestId === pathSearchRequestId && searchQuery.trim() === query) pathSearchResults = results;
       } catch {
         if (requestId === pathSearchRequestId) pathSearchResults = [];
