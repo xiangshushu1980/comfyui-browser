@@ -2,7 +2,6 @@ from os import path, makedirs
 from aiohttp import web
 import shutil
 import time
-import os
 
 from ..utils import collections_path, get_parent_path, add_uuid_to_filename, \
     config_path, get_config, git_init, run_cmd, git_remote_name, \
@@ -51,22 +50,18 @@ async def api_toggle_favorite(request):
 
     key = favorite_key(folder_type, folder_path, filename, root_id)
     records = load_favorite_records()
-    saved_name = records.get(key)
     if not is_favorite:
-        if saved_name:
-            saved_path = path.join(collections_path(), saved_name)
-            if path.isdir(saved_path):
-                shutil.rmtree(saved_path)
-            elif path.exists(saved_path):
-                os.remove(saved_path)
-            info_path = path.splitext(saved_path)[0] + '.info'
-            if path.exists(info_path):
-                os.remove(info_path)
-            records.pop(key, None)
+        old_value = records.pop(key, None)
+        if isinstance(old_value, str):
+            # Keep the legacy snapshot out of Saves without deleting user data.
+            legacy_names = records.setdefault('__legacy_favorite_copies__', [])
+            if isinstance(legacy_names, list) and old_value not in legacy_names:
+                legacy_names.append(old_value)
+        if old_value is not None:
             save_favorite_records(records)
         return web.Response(status=200)
 
-    if saved_name and path.exists(path.join(collections_path(), saved_name)):
+    if key in records:
         return web.Response(status=200)
 
     parent_path = get_browser_root_path(root_id, folder_type)
@@ -76,13 +71,8 @@ async def api_toggle_favorite(request):
     if not path.exists(source_path):
         return web.Response(status=404)
     makedirs(collections_path(), exist_ok=True)
-    saved_name = add_uuid_to_filename(filename)
-    saved_path = path.join(collections_path(), saved_name)
-    if path.isdir(source_path):
-        shutil.copytree(source_path, saved_path)
-    else:
-        shutil.copy(source_path, saved_path)
-    records[key] = saved_name
+    # Owner: Sean — favorite state is a reference marker; never copy source content.
+    records[key] = {'kind': 'reference'}
     save_favorite_records(records)
     return web.Response(status=201)
 

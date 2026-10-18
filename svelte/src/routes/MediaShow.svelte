@@ -66,7 +66,7 @@
       style={`container-type:inline-size;grid-template-columns:repeat(${Math.max(1, file.preview_items?.length || 1)},minmax(0,1fr));`}
       title={file.children_count === 0 ? 'Empty folder' : `${file.children_count} items`}
       aria-label={file.children_count === 0 ? `Empty folder ${file.name}` : `${file.name}, ${file.children_count} items`}
-      on:click={() => onClickDir(file)}
+      on:click={(event) => { event.stopPropagation(); onClickDir(file); }}
     >
       {#if file.preview_items?.length}
         {#each file.preview_items as item}

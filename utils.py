@@ -164,7 +164,13 @@ def get_browser_root_path(root_id: str | None = None, folder_type: str = 'output
     return next((root["path"] for root in get_browser_roots() if root["id"] == root_id), None)
 
 # folder_type = 'outputs', 'collections', 'sources'
-def get_target_folder_files(folder_path: str, folder_type: str = 'outputs', root_id: str | None = None):
+def get_target_folder_files(
+    folder_path: str,
+    folder_type: str = 'outputs',
+    root_id: str | None = None,
+    show_hidden: bool = False,
+    fast_directory_stats: bool = False,
+):
     if '..' in folder_path:
         return None
 
@@ -186,7 +192,7 @@ def get_target_folder_files(folder_path: str, folder_type: str = 'outputs', root
 
         name = path.basename(item.path)
         ext = path.splitext(name)[1].lower()
-        if name == '' or name[0] == '.':
+        if name == '' or (name[0] == '.' and (item.is_file() or not show_hidden)):
             continue
         if item.is_file():
             if not (ext in white_extensions):
@@ -212,7 +218,7 @@ def get_target_folder_files(folder_path: str, folder_type: str = 'outputs', root
             file_info["root_id"] = root_id or 'outputs'
             files.append(file_info)
         elif item.is_dir():
-            child_count, folder_bytes = get_directory_stats(item.path)
+            child_count, folder_bytes = (1, 0) if fast_directory_stats else get_directory_stats(item.path)
             try:
                 direct_files = sorted(
                     (child for child in scandir(item.path)
@@ -274,6 +280,7 @@ def search_browser_directories(
     root_id: str | None = None,
     base_folder_path: str = '',
     limit: int = 200,
+    show_hidden: bool = False,
 ):
     root_path = get_browser_root_path(root_id, 'outputs')
     if not root_path or not path.isdir(root_path):
@@ -289,12 +296,13 @@ def search_browser_directories(
         return []
 
     matches = []
-    for current_path, directory_names, _ in walk(search_root, followlinks=False):
+    favorite_records = load_favorite_records()
+    for current_path, directory_names, filenames in walk(search_root, followlinks=False):
         current_relative_path = path.relpath(current_path, search_root).replace('\\', '/')
-        # Owner: Sean — descend into hidden folders only when the search names that path.
+        # Owner: Sean — hidden folders are opt-in in directory search.
         directory_names[:] = [
             name for name in directory_names
-            if not name.startswith('.')
+            if show_hidden or not name.startswith('.')
             or needle.startswith(
                 (name if current_relative_path == '.' else f'{current_relative_path}/{name}').casefold() + '/'
             )
@@ -315,6 +323,7 @@ def search_browser_directories(
             matches.append({
                 "type": "dir",
                 "name": name,
+                "path": relative_path,
                 "bytes": 0,
                 "created_at": folder_stat.st_ctime,
                 "folder_path": folder_path,
@@ -324,6 +333,34 @@ def search_browser_directories(
                 "root_id": root_id or 'outputs',
             })
             matched_directory_names.append(name)
+            if len(matches) >= limit:
+                return matches
+        # Owner: Sean — path search includes supported files as well as folders.
+        for name in filenames:
+            if name.startswith('.'):
+                continue
+            if path.splitext(name)[1].lower() not in white_extensions:
+                continue
+            full_path = path.join(current_path, name)
+            relative_path = path.relpath(full_path, root_path).replace('\\', '/')
+            if needle not in relative_path.casefold():
+                continue
+            try:
+                file_stat = stat(full_path)
+            except OSError:
+                continue
+            parent_path = path.relpath(current_path, root_path)
+            folder_path = '' if parent_path == '.' else parent_path.replace('\\', '/')
+            matches.append({
+                "type": "file",
+                "name": name,
+                "bytes": file_stat.st_size,
+                "created_at": file_stat.st_ctime,
+                "folder_path": folder_path,
+                "notes": "",
+                "is_favorite": favorite_key('outputs', folder_path, name, root_id) in favorite_records,
+                "root_id": root_id or 'outputs',
+            })
             if len(matches) >= limit:
                 return matches
         if matched_directory_names:

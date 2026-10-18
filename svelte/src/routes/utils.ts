@@ -14,6 +14,15 @@ const SUPPORTED_FILE_EXTS = ['html', 'json', ...IMAGE_EXTS, ...VIDEO_EXTS, ...AU
 const localStorageKey = 'comfyui-browser';
 
 export function getFileUrl(comfyUrl: string, folderType: string, file: any, rootId = 'outputs') {
+  if (file.favorite_reference) {
+    const params = new URLSearchParams({
+      folder_type: file.source_folder_type || folderType,
+      root_id: file.source_root_id || rootId,
+      folder_path: file.source_folder_path || '',
+      filename: file.source_filename || file.name,
+    });
+    return `${comfyUrl}/browser/files/view?${params.toString()}`;
+  }
   if (rootId !== 'outputs') {
     const params = new URLSearchParams({
       folder_type: folderType,
@@ -99,11 +108,11 @@ function processDir(dir: any, folderType: FOLDER_TYPES, comfyUrl: string, rootId
   dir['fileType'] = 'dir';
 
   const newFolderPath = dir.folder_path ? `${dir.folder_path}/${dir.name}` : dir.name;
-  dir['path'] = newFolderPath;
+  dir['path'] = dir.path || newFolderPath;
   dir['preview_items'] = (dir.preview_items || []).map((item: any) => ({
     ...item,
     previewUrl: item.fileType === 'image'
-      ? getFileUrl(comfyUrl, folderType, { name: item.name, folder_path: newFolderPath }, rootId)
+      ? getFileUrl(comfyUrl, folderType, { ...item, name: item.name, folder_path: newFolderPath }, rootId)
       : undefined,
   }));
 
@@ -120,9 +129,11 @@ export async function fetchFiles(
   folderPath?: string,
   rootId = 'outputs',
   pathSearch = '',
+  showHidden = false,
 ) {
   const params = new URLSearchParams({ folder_type: folderType, root_id: rootId, folder_path: folderPath || '' });
   if (pathSearch) params.set('path_search', pathSearch);
+  if (showHidden) params.set('show_hidden', '1');
   const url = `${comfyUrl}/browser/files?${params.toString()}`;
 
   const res = await fetch(url);

@@ -14,6 +14,7 @@
   export let folderType: FOLDER_TYPES;
   export let toast: Toast;
   export let folderPath: string;
+  export let navigation: any = null;
   $: if (folderPath != undefined) {
     refresh();
   }
@@ -27,6 +28,7 @@
   let loaded: boolean = true;
   let showCursor = 20;
   let searchQuery = '';
+  let showHiddenDirectories = false;
   let candidateQuery = '';
   let searchCandidates: Array<any> = [];
   let selectedSearchCandidate = '';
@@ -45,6 +47,8 @@
   let canGoBack = false;
   let canGoForward = false;
   let selectedFile: any = null;
+  let mouseNavigationHandled = false;
+  let favoriteBusyKey = '';
   let hoveredFile: any = null;
   let deleteConfirmFile: any = null;
   let deleteHintX = 0;
@@ -55,6 +59,8 @@
   let draggedRootId: string | null = null;
   let activeRootId = 'outputs';
   let activeRoot: any = browserRoots[0];
+  let rootsLoaded = false;
+  let appliedNavigationId = 0;
   let currentPathSegments: string[] = [];
   let breadcrumbOrientation: 'horizontal' | 'vertical' = 'horizontal';
   let viewMode: 'full' | 'side' = 'full';
@@ -86,6 +92,10 @@
   $: activeRoot = folderType === 'outputs'
     ? (browserRoots.find((root) => root.id === activeRootId) || browserRoots[0])
     : null;
+  $: if (navigation && rootsLoaded && navigation.id !== appliedNavigationId) {
+    appliedNavigationId = navigation.id;
+    void openNavigationTarget(navigation);
+  }
   $: currentPathSegments = (folderPath || '').split('/').filter(Boolean);
   $: filteredFiles = (pathSearchResults ?? files).filter((file) => {
     if (!matchesSearch(file, searchQuery)) return false;
@@ -98,7 +108,7 @@
   $: sortedFiles = sortFiles(filteredFiles, sortBy, sortDirection);
 
   function matchesSearch(file: any, query: string) {
-    const needle = query.trim().replace(/\\/g, '/').toLocaleLowerCase();
+    const needle = query.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
     if (!needle) return true;
     const relativePath = [file.folder_path, file.name]
       .filter(Boolean)
@@ -157,14 +167,19 @@
     const extensionIndex = isFile ? name.lastIndexOf('.') : -1;
     const hasExtension = extensionIndex > 0;
     const stem = hasExtension ? name.slice(0, extensionIndex) : name;
-    const segments: Array<{ text: string; color: string }> = (stem.match(/[\p{L}\p{N}]+/gu) || [stem]).map((text) => ({
+    const leadingDot = !isFile && stem.startsWith('.');
+    const words = stem.slice(leadingDot ? 1 : 0).match(/[\p{L}\p{N}]+/gu) || [stem.slice(leadingDot ? 1 : 0)];
+    const segments: Array<{ text: string; color: string }> = [
+      ...(leadingDot ? [{ text: '.', color: 'rgba(255,255,255,.8)' }] : []),
+      ...words.map((text) => ({
       text,
       color: /^\p{N}+$/u.test(text)
         ? filenameColorConfig.numberColor
         : /^\p{L}+$/u.test(text)
           ? wordColor(text)
           : 'rgba(255,255,255,.55)',
-    }));
+      })),
+    ];
     return segments;
   }
 
@@ -231,7 +246,7 @@
     if (folderType !== 'outputs') return;
     pathSearchTimer = setTimeout(async () => {
       try {
-        const results = await fetchFiles(folderType, comfyUrl, folderPath, activeRootId, query);
+        const results = await fetchFiles(folderType, comfyUrl, folderPath, activeRootId, query, showHiddenDirectories);
         if (requestId === pathSearchRequestId && searchQuery.trim() === query) pathSearchResults = results;
       } catch {
         if (requestId === pathSearchRequestId) pathSearchResults = [];
@@ -239,9 +254,28 @@
     }, 250);
   }
 
-  function selectSearchCandidate(name: string) {
-    selectedSearchCandidate = name;
-    searchQuery = name;
+  function toggleShowHiddenDirectories(event: Event) {
+    showHiddenDirectories = (event.currentTarget as HTMLInputElement).checked;
+    localStorage.setItem('comfyui-browser-show-hidden-directories', String(showHiddenDirectories));
+    void refresh();
+    if (searchQuery.trim() && (searchQuery.includes('/') || searchQuery.includes('\\') || searchQuery.startsWith('.'))) {
+      onSearchInput();
+    }
+  }
+
+  function searchCandidatePath(candidate: any) {
+    return [candidate.folder_path, candidate.name].filter(Boolean).join('/');
+  }
+
+  function selectSearchCandidate(candidate: any) {
+    const candidatePath = searchCandidatePath(candidate);
+    if (candidate.type === 'dir') {
+      showSearchCandidates = false;
+      onClickDir(candidate);
+      return;
+    }
+    selectedSearchCandidate = candidatePath;
+    searchQuery = candidatePath;
     showSearchCandidates = false;
     showCursor = 20;
   }
@@ -256,17 +290,18 @@
     if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && searchCandidates.length > 0) {
       event.preventDefault();
       showSearchCandidates = true;
-      const currentIndex = searchCandidates.findIndex((candidate) => candidate.name === selectedSearchCandidate);
+      const currentIndex = searchCandidates.findIndex((candidate) => searchCandidatePath(candidate) === selectedSearchCandidate);
       const nextIndex = event.key === 'ArrowDown'
         ? (currentIndex + 1) % searchCandidates.length
         : (currentIndex <= 0 ? searchCandidates.length - 1 : currentIndex - 1);
-      selectSearchCandidate(searchCandidates[nextIndex].name);
-      showSearchCandidates = true;
+      const nextCandidate = searchCandidates[nextIndex];
+      selectSearchCandidate(nextCandidate);
+      if (nextCandidate.type !== 'dir') showSearchCandidates = true;
       return;
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      if (searchCandidates.length > 0 && !selectedSearchCandidate) selectSearchCandidate(searchCandidates[0].name);
+      if (searchCandidates.length > 0 && !selectedSearchCandidate) selectSearchCandidate(searchCandidates[0]);
       else showSearchCandidates = false;
     } else if (event.key === 'Escape') {
       event.preventDefault();
@@ -323,7 +358,7 @@
     const requestedRoot = activeRootId;
     loaded = false;
     try {
-      const nextFiles = await fetchFiles(folderType, comfyUrl, requestedFolder, requestedRoot);
+      const nextFiles = await fetchFiles(folderType, comfyUrl, requestedFolder, requestedRoot, '', showHiddenDirectories);
       if (requestId === filesRequestId) files = nextFiles;
     } finally {
       if (requestId === filesRequestId) loaded = true;
@@ -332,6 +367,7 @@
 
   onMount(async () => {
     standaloneBrowser = window.top === window;
+    showHiddenDirectories = localStorage.getItem('comfyui-browser-show-hidden-directories') === 'true';
     const savedSortBy = localStorage.getItem('comfyui-browser-sort-by');
     if (savedSortBy === 'time' || savedSortBy === 'name' || savedSortBy === 'size') sortBy = savedSortBy;
     const savedSortDirection = localStorage.getItem('comfyui-browser-sort-direction');
@@ -367,6 +403,8 @@
       localStorage.setItem(folderStorageKey(), folderPath);
     }
 
+    rootsLoaded = true;
+
     resetFolderHistory();
 
     window.addEventListener('scroll', (e) => {
@@ -378,9 +416,33 @@
     window.addEventListener('keydown', onFileShortcut);
     window.addEventListener('keydown', onPreviewNavigateKey);
     window.addEventListener('keydown', onSearchShortcut);
-    window.addEventListener('auxclick', onMouseNavigation);
+    window.addEventListener('pointerdown', onMouseNavigationCapture, true);
+    window.addEventListener('pointerup', onMouseNavigationCapture, true);
+    window.addEventListener('mousedown', onMouseNavigationCapture, true);
+    window.addEventListener('mouseup', onMouseNavigationCapture, true);
+    window.addEventListener('auxclick', onMouseNavigationCapture, true);
     window.addEventListener('pointermove', onGlobalPointerMove);
   });
+
+  async function openNavigationTarget(target: any) {
+    if (folderType !== 'outputs') return;
+    const targetRootId = browserRoots.some((root) => root.id === target.rootId) ? target.rootId : 'outputs';
+    const targetPath = [target.folderPath, target.folderName].filter(Boolean).join('/');
+    syncViewMode();
+    activeRootId = targetRootId;
+    folderPath = targetPath;
+    searchQuery = '';
+    candidateQuery = '';
+    pathSearchResults = null;
+    pathSearchRequestId += 1;
+    localStorage.setItem(rootStorageKey(), activeRootId);
+    localStorage.setItem(folderStorageKey(), folderPath);
+    selectedFile = null;
+    postPreview(null);
+    resetFolderHistory();
+    window.scrollTo({ top: 0 });
+    await refresh();
+  }
 
   onDestroy(() => {
     if (typeof window !== 'undefined') {
@@ -388,7 +450,11 @@
       window.removeEventListener('keydown', onFileShortcut);
       window.removeEventListener('keydown', onPreviewNavigateKey);
       window.removeEventListener('keydown', onSearchShortcut);
-      window.removeEventListener('auxclick', onMouseNavigation);
+      window.removeEventListener('pointerdown', onMouseNavigationCapture, true);
+      window.removeEventListener('pointerup', onMouseNavigationCapture, true);
+      window.removeEventListener('mousedown', onMouseNavigationCapture, true);
+      window.removeEventListener('mouseup', onMouseNavigationCapture, true);
+      window.removeEventListener('auxclick', onMouseNavigationCapture, true);
       window.removeEventListener('pointermove', onGlobalPointerMove);
       window.removeEventListener('message', onHostMessage);
       postPreview(null);
@@ -721,15 +787,32 @@
     if (key === 'd') openDeleteConfirm(hoveredFile);
   }
 
-  function onMouseNavigation(event: MouseEvent) {
+  function onMouseNavigationCapture(event: MouseEvent | PointerEvent) {
     if (event.button !== 3 && event.button !== 4) return;
     event.preventDefault();
-    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (event.type === 'pointerdown' || event.type === 'mousedown') {
+      mouseNavigationHandled = false;
+      return;
+    }
+    if (event.type === 'pointerup' || event.type === 'mouseup') {
+      if (mouseNavigationHandled) return;
+      mouseNavigationHandled = true;
+      handleMouseNavigation(event.button, event.ctrlKey);
+      return;
+    }
+    if (event.type === 'auxclick') {
+      if (!mouseNavigationHandled) handleMouseNavigation(event.button, event.ctrlKey);
+      mouseNavigationHandled = false;
+    }
+  }
+
+  function handleMouseNavigation(button: number, ctrlKey: boolean) {
     if (selectedFile) {
-      const previewDirection = event.button === 3 ? 1 : -1;
-      navigatePreview(previewDirection, event.ctrlKey);
+      const previewDirection = button === 3 ? 1 : -1;
+      navigatePreview(previewDirection, ctrlKey);
     } else {
-      event.button === 3 ? goBack() : goForward();
+      button === 3 ? goBack() : goForward();
     }
   }
 
@@ -810,23 +893,34 @@
   }
 
   async function onToggleFavorite(file: any) {
+    const key = JSON.stringify([activeRootId, file.folder_path || '', file.name]);
+    if (favoriteBusyKey === key) return;
     const nextValue = !file.is_favorite;
-    const res = await fetch(comfyUrl + '/browser/favorites', {
-      method: 'POST',
-      body: JSON.stringify({
-        filename: file.name,
-        folder_path: file.folder_path,
-        folder_type: folderType,
-        root_id: activeRootId,
-        favorite: nextValue,
-      }),
-    });
-    if (res.ok) {
-      file.is_favorite = nextValue;
-      files = [...files];
-      playBrowserSound('action');
+    favoriteBusyKey = key;
+    try {
+      const res = await fetch(comfyUrl + '/browser/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          folder_path: file.folder_path,
+          folder_type: folderType,
+          root_id: activeRootId,
+          favorite: nextValue,
+        }),
+      });
+      if (res.ok) {
+        file.is_favorite = nextValue;
+        files = [...files];
+        playBrowserSound('action');
+      }
+      toast.show(res.ok, nextValue ? 'Added to Saves' : 'Removed from Saves', 'Failed to update Saves');
+    } catch (error) {
+      console.error('Failed to update Saves', error);
+      toast.show(false, nextValue ? 'Added to Saves' : 'Removed from Saves', 'Failed to update Saves');
+    } finally {
+      favoriteBusyKey = '';
     }
-    toast.show(res.ok, nextValue ? 'Added to Saves' : 'Removed from Saves', 'Failed to update Saves');
   }
 
   async function scrollToTop() {
@@ -887,7 +981,8 @@
     searchQuery = '';
     candidateQuery = '';
     pathSearchResults = null;
-    navigateToFolder(dir.path);
+    const canonicalPath = [dir.folder_path, dir.name].filter(Boolean).join('/');
+    navigateToFolder(canonicalPath || dir.path || '');
   }
 
   function onClickCard(file: any, event: MouseEvent) {
@@ -940,13 +1035,17 @@
     {#if showSearchCandidates && searchCandidates.length > 0}
       <div class="absolute left-0 right-0 top-full mt-1 max-h-64 overflow-auto rounded-md border border-base-content/20 bg-base-200 shadow-xl">
         {#each searchCandidates as candidate}
-          <button class="block w-full truncate px-3 py-2 text-left text-sm hover:bg-base-300 {selectedSearchCandidate === candidate.name ? 'bg-base-300' : ''}" title={candidate.name} on:click={() => selectSearchCandidate(candidate.name)}>
-            {candidate.name}
+          <button class="block w-full truncate px-3 py-2 text-left text-sm hover:bg-base-300 {selectedSearchCandidate === searchCandidatePath(candidate) ? 'bg-base-300' : ''}" title={searchCandidatePath(candidate)} on:click={() => selectSearchCandidate(candidate)}>
+            {searchCandidatePath(candidate)}
           </button>
         {/each}
       </div>
     {/if}
   </div>
+  <label class="flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-xs" title="显示或隐藏 . 开头的文件夹">
+    <input type="checkbox" class="checkbox checkbox-xs" checked={showHiddenDirectories} on:change={toggleShowHiddenDirectories} />
+    显示 . 文件夹
+  </label>
   <div class="flex shrink-0 items-center gap-0.5" aria-label="Date filter">
     <button class="btn btn-xs px-2 {datePreset === 'today' ? 'btn-active' : 'btn-ghost'}" aria-pressed={datePreset === 'today'} on:click={() => setDatePreset('today')}>今日</button>
     <button class="btn btn-xs px-2 {datePreset === '3days' ? 'btn-active' : 'btn-ghost'}" aria-pressed={datePreset === '3days'} on:click={() => setDatePreset('3days')}>3 日</button>
@@ -972,12 +1071,12 @@
   </button>
 
 {#if folderType === 'outputs'}
-  <div class="fixed left-14 top-14 z-[45] max-h-[45vh] max-w-[min(85vw,34rem)] rounded-md border border-white/15 bg-black/80 p-2 pr-8 text-xs leading-tight text-white shadow-xl backdrop-blur-sm">
+  <div class="fixed left-14 top-14 z-[45] h-fit w-max max-h-[45vh] max-w-none rounded-md border border-white/15 bg-black/80 p-2 pr-8 text-xs leading-tight text-white shadow-xl backdrop-blur-sm">
     <nav class="flex max-h-[calc(45vh-1rem)] items-center gap-1 overflow-auto {breadcrumbOrientation === 'vertical' ? 'flex-col items-start' : 'flex-row whitespace-nowrap'}" aria-label="Current directory breadcrumb">
-      <button class="max-w-full break-all py-0.5 text-left font-semibold hover:underline" title={activeRoot?.name || 'Root'} on:click={() => onClickPath(-1)}>{activeRoot?.name || 'Root'}</button>
+      <button class="whitespace-nowrap py-0.5 text-left font-semibold hover:underline" title={activeRoot?.name || 'Root'} on:click={() => onClickPath(-1)}>{activeRoot?.name || 'Root'}</button>
       {#each currentPathSegments as segment, index}
         <span class="shrink-0 opacity-60" aria-hidden="true">{breadcrumbOrientation === 'vertical' ? '↓' : '›'}</span>
-        <button class="max-w-full break-all py-0.5 text-left hover:underline" title={segment} on:click={() => onClickPath(index)}>{segment}</button>
+        <button class="whitespace-nowrap py-0.5 text-left hover:underline" title={segment} on:click={() => onClickPath(index)}>{segment}</button>
       {/each}
     </nav>
     <button class="btn btn-ghost btn-xs btn-square absolute right-0.5 top-0.5 h-6 min-h-0 w-6" aria-label={breadcrumbOrientation === 'horizontal' ? 'Switch breadcrumb to vertical' : 'Switch breadcrumb to horizontal'} title={breadcrumbOrientation === 'horizontal' ? 'Vertical breadcrumb' : 'Horizontal breadcrumb'} on:click={toggleBreadcrumbOrientation}>
@@ -1085,7 +1184,8 @@
         <MediaShow {file} styleClass="w-full min-h-24 flex-auto" {onClickDir} {onSelectFile} />
 
         <button
-          class="btn btn-circle btn-ghost btn-xs absolute left-1 top-1 z-10 h-7 min-h-0 w-7 p-0 shadow backdrop-blur-sm hover:bg-black/50 {file.is_favorite ? 'bg-black/50 text-yellow-300' : 'bg-black/35 text-white'}"
+          class="btn btn-circle btn-ghost btn-xs absolute left-1 top-1 z-10 h-7 min-h-0 w-7 p-0 shadow backdrop-blur-sm hover:bg-black/50 {favoriteBusyKey === JSON.stringify([activeRootId, file.folder_path || '', file.name]) ? 'animate-pulse bg-black/70 text-sky-300' : file.is_favorite ? 'bg-black/50 text-yellow-300' : 'bg-black/35 text-white'}"
+          disabled={favoriteBusyKey === JSON.stringify([activeRootId, file.folder_path || '', file.name])}
           aria-pressed={!!file.is_favorite}
           aria-label={file.is_favorite ? 'Remove from Saves' : 'Add to Saves'}
           title={`${file.is_favorite ? 'Remove from Saves' : 'Add to Saves'} (S)`}
@@ -1094,7 +1194,7 @@
           <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={file.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg>
         </button>
         {#if ['text', 'markdown', 'json'].includes(file.fileType)}
-          <div class="pointer-events-none absolute left-2 top-1 z-[1] w-fit max-w-[calc(100%_-_1rem)] truncate rounded bg-black/70 px-2 py-1 text-left text-xs font-semibold text-white" title={file.name}>{file.name}</div>
+          <div class="pointer-events-none absolute left-1/2 top-1 z-[1] w-fit max-w-[calc(100%_-_3rem)] -translate-x-1/2 truncate rounded bg-black/70 px-2 py-1 text-center text-xs font-semibold text-white" title={file.name}>{file.name}</div>
         {:else if file.type === 'dir'}
           <div class="pointer-events-none absolute left-1 right-1 top-1/2 z-[1] max-h-[calc(100%_-_3rem)] -translate-y-1/2 overflow-hidden text-center opacity-80">
             <div class="mx-auto grid max-h-[calc(100%_-_3rem)] w-full grid-cols-2 gap-1 font-bold leading-[1.3] text-[28px]" title={file.name}>
