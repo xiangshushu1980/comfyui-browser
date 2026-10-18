@@ -76,6 +76,11 @@
   let pickerLoading = false;
   let standaloneBrowser = false;
   let standalonePreviewText = '';
+  let standaloneTextZoom = 1;
+  let standaloneTextSplit = false;
+  let standaloneMarkdownPages: HTMLDivElement;
+  let standaloneMarkdownPage = 1;
+  let standaloneMarkdownPageCount = 1;
   // Owner: Sean — image interaction in the standalone preview.
   let standalonePreviewZoom = 1;
   let standalonePreviewPanX = 0;
@@ -84,6 +89,11 @@
   $: standalonePreviewHtml = selectedFile?.fileType === 'markdown'
     ? renderMarkdown(standalonePreviewText, selectedFile.url)
     : '';
+  $: standalonePrettyJson = (() => {
+    if (selectedFile?.fileType !== 'json') return standalonePreviewText;
+    try { return JSON.stringify(JSON.parse(standalonePreviewText), null, 2); }
+    catch { return standalonePreviewText; }
+  })();
   $: standalonePreviewPosition = selectedFile ? getPreviewPosition(selectedFile) : { index: 0, total: 0 };
 
   $: searchCandidates = candidateQuery.trim()
@@ -246,7 +256,9 @@
     if (folderType !== 'outputs') return;
     pathSearchTimer = setTimeout(async () => {
       try {
-        const results = await fetchFiles(folderType, comfyUrl, folderPath, activeRootId, query, showHiddenDirectories);
+        // Path queries are root-relative; searching only the open directory misses
+        // matching files in sibling branches such as .production-runs.
+        const results = await fetchFiles(folderType, comfyUrl, '', activeRootId, query, showHiddenDirectories);
         if (requestId === pathSearchRequestId && searchQuery.trim() === query) pathSearchResults = results;
       } catch {
         if (requestId === pathSearchRequestId) pathSearchResults = [];
@@ -532,9 +544,19 @@
       postPreview(null);
       return;
     }
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const textPreview = ['text', 'html', 'json', 'markdown'].includes(selectedFile.fileType);
+    if (textPreview && ['+', '=', 'Add'].includes(event.key)) {
+      event.preventDefault(); event.stopPropagation(); changeTextZoom(0.1); return;
+    }
+    if (textPreview && ['-', '_', 'Subtract'].includes(event.key)) {
+      event.preventDefault(); event.stopPropagation(); changeTextZoom(-0.1); return;
+    }
+    if (textPreview && event.key === '0') {
+      event.preventDefault(); event.stopPropagation(); standaloneTextZoom = 1; return;
+    }
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();
     event.stopPropagation();
     navigatePreview(event.key === 'ArrowLeft' ? -1 : 1);
@@ -824,10 +846,40 @@
   }
 
   function zoomStandalonePreview(event: WheelEvent) {
-    if (selectedFile?.fileType !== 'image') return;
+    if (selectedFile?.fileType === 'markdown' && standaloneTextSplit && standaloneMarkdownPages) {
+      event.preventDefault();
+      const horizontalDelta = event.deltaX || event.deltaY;
+      standaloneMarkdownPages.scrollLeft += horizontalDelta;
+      updateMarkdownPagePosition();
+      return;
+    }
+    if (selectedFile?.fileType !== 'image') {
+      if ((selectedFile?.fileType === 'text' || selectedFile?.fileType === 'json' || selectedFile?.fileType === 'markdown' || selectedFile?.fileType === 'html') && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        changeTextZoom(event.deltaY < 0 ? 0.05 : -0.05);
+      }
+      return;
+    }
     event.preventDefault();
     standalonePreviewZoom = Math.max(0.2, Math.min(6,
       standalonePreviewZoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15)));
+  }
+
+  function changeTextZoom(delta: number) {
+    standaloneTextZoom = Math.max(0.65, Math.min(2.5, Math.round((standaloneTextZoom + delta) * 100) / 100));
+  }
+
+  function updateMarkdownPagePosition() {
+    if (!standaloneMarkdownPages) return;
+    const pageWidth = standaloneMarkdownPages.clientWidth;
+    standaloneMarkdownPageCount = Math.max(1, Math.ceil(standaloneMarkdownPages.scrollWidth / Math.max(pageWidth, 1)));
+    standaloneMarkdownPage = Math.min(standaloneMarkdownPageCount, Math.floor(standaloneMarkdownPages.scrollLeft / Math.max(pageWidth, 1)) + 1);
+  }
+
+  function turnMarkdownPage(direction: number) {
+    if (!standaloneMarkdownPages) return;
+    standaloneMarkdownPages.scrollBy({ left: direction * standaloneMarkdownPages.clientWidth, behavior: 'smooth' });
+    setTimeout(updateMarkdownPagePosition, 250);
   }
 
   function resetStandaloneImagePreview(event: MouseEvent) {
@@ -863,6 +915,10 @@
     }
     if (withSound) playBrowserSound('action');
     selectedFile = file;
+    standaloneTextZoom = 1;
+    standaloneTextSplit = false;
+    standaloneMarkdownPage = 1;
+    standaloneMarkdownPageCount = 1;
     if (standaloneBrowser) {
       resetStandalonePreview();
       standalonePreviewText = '';
@@ -1242,6 +1298,22 @@
     <div class="flex items-center gap-2 mb-2">
       <strong class="truncate flex-1">{selectedFile.name}</strong>
       <span class="text-xs opacity-70">{selectedFile.formattedSize}</span>
+      {#if ['text', 'html', 'json', 'markdown'].includes(selectedFile.fileType)}
+        <div class="flex items-center gap-1 rounded bg-base-300/70 px-1">
+          <button class="btn btn-ghost btn-xs" aria-label="Decrease text size" title="Decrease text size (−)" on:click={() => changeTextZoom(-0.1)}>−</button>
+          <span class="min-w-10 text-center text-xs tabular-nums">{Math.round(standaloneTextZoom * 100)}%</span>
+          <button class="btn btn-ghost btn-xs" aria-label="Increase text size" title="Increase text size (+)" on:click={() => changeTextZoom(0.1)}>+</button>
+          <button class="btn btn-ghost btn-xs" title="Reset text size (0)" on:click={() => standaloneTextZoom = 1}>↺</button>
+        </div>
+        {#if selectedFile.fileType === 'markdown'}
+          <button class="btn btn-outline btn-xs" aria-pressed={standaloneTextSplit} title="Toggle paged two-column Markdown view" on:click={() => { standaloneTextSplit = !standaloneTextSplit; standaloneMarkdownPage = 1; requestAnimationFrame(updateMarkdownPagePosition); }}>{standaloneTextSplit ? '单栏' : '双栏分页'}</button>
+          {#if standaloneTextSplit}
+            <button class="btn btn-ghost btn-xs" aria-label="Previous Markdown spread" disabled={standaloneMarkdownPage <= 1} on:click={() => turnMarkdownPage(-1)}>‹</button>
+            <span class="min-w-12 text-center text-xs tabular-nums">{standaloneMarkdownPage}/{standaloneMarkdownPageCount}</span>
+            <button class="btn btn-ghost btn-xs" aria-label="Next Markdown spread" disabled={standaloneMarkdownPage >= standaloneMarkdownPageCount} on:click={() => turnMarkdownPage(1)}>›</button>
+          {/if}
+        {/if}
+      {/if}
       <button class="btn btn-ghost btn-sm" aria-label="Close preview" on:click={() => selectedFile = null}>✕</button>
     </div>
     <div
@@ -1269,12 +1341,18 @@
         <video class="max-w-full max-h-full" src={selectedFile.previewUrl} controls playsinline><track kind="captions" /></video>
       {:else if selectedFile.fileType === 'audio'}
         <audio class="w-full max-w-2xl" src={selectedFile.url} controls />
-      {:else if selectedFile.fileType === 'markdown'}
-        <div class="comfy-browser-markdown h-full w-full overflow-auto rounded bg-base-100/80 p-4">
-          {@html standalonePreviewHtml}
-        </div>
       {:else}
-        <pre class="w-full h-full overflow-auto whitespace-pre-wrap break-words rounded bg-base-100/80 p-3 text-xs">{standalonePreviewText}</pre>
+        <div class="h-full w-full overflow-auto rounded bg-base-100/80 p-4" style:font-size={`${standaloneTextZoom}em`}>
+          {#if selectedFile.fileType === 'markdown' && standaloneTextSplit}
+            <div bind:this={standaloneMarkdownPages} class="comfy-browser-markdown h-full w-full overflow-x-auto overflow-y-hidden" style="column-count: 2; column-gap: 2rem; column-fill: auto; font-size: {14 * standaloneTextZoom}px;" on:scroll={updateMarkdownPagePosition}>
+              {@html standalonePreviewHtml}
+            </div>
+          {:else if selectedFile.fileType === 'markdown'}
+            <div class="comfy-browser-markdown mx-auto h-full max-w-5xl" style="font-size: {14 * standaloneTextZoom}px">{@html standalonePreviewHtml}</div>
+          {:else}
+            <pre class="mx-auto h-full max-w-5xl overflow-auto whitespace-pre-wrap break-words rounded border border-base-content/10 bg-base-200/40 p-4 font-mono text-[0.85em] leading-relaxed">{selectedFile.fileType === 'json' ? standalonePrettyJson : standalonePreviewText}</pre>
+          {/if}
+        </div>
       {/if}
       <button
         class="absolute left-3 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/50 bg-black/70 p-0 text-white [box-shadow:0_2px_10px_rgba(0,0,0,.45)] transition-transform duration-100 active:scale-90 {standalonePreviewPosition.index <= 1 ? 'cursor-not-allowed border-white/20 bg-neutral-500/60 text-white/50 opacity-50' : ''}"
